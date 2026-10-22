@@ -1,0 +1,193 @@
+import Foundation
+import SwiftUI
+import CoreGraphics
+
+// All data is local to the main app. No App Groups, network calls, or raw-frame storage.
+struct GameOCRBox: Codable, Equatable {
+    var x: Double = 0.03
+    var y: Double = 0.03
+    var width: Double = 0.94
+    var height: Double = 0.62
+
+    var rect: CGRect {
+        let ox = min(0.98, max(0, x))
+        let oy = min(0.98, max(0, y))
+        return CGRect(x: ox, y: oy,
+                      width: min(max(width, 0.03), 1 - ox),
+                      height: min(max(height, 0.03), 1 - oy))
+    }
+
+    static let dialogue = GameOCRBox()
+    static let full = GameOCRBox(x: 0.02, y: 0.02, width: 0.96, height: 0.96)
+}
+
+struct GameProfile: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var name: String
+    var language: String = "ja"
+    var region: GameOCRBox = .dialogue
+    var glossary: String = ""
+    // Optional normalized region of screen to ignore (e.g. HUD or PiP location).
+    var excluded: GameOCRBox? = nil
+}
+
+struct GameSubtitleLine: Identifiable, Codable {
+    var id = UUID()
+    let original: String
+    let translated: String
+    let game: String
+    let timestamp: Date
+    let elapsedMs: Int
+}
+
+enum GamePerformance: String, Codable, CaseIterable, Identifiable {
+    case fast, balanced, battery
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .fast: return "快速"
+        case .balanced: return "平衡"
+        case .battery: return "省电"
+        }
+    }
+    var minimumInterval: TimeInterval {
+        switch self {
+        case .fast: return 0.38
+        case .balanced: return 0.65
+        case .battery: return 1.15
+        }
+    }
+}
+
+enum GamePiPLayout: String, Codable, CaseIterable, Identifiable {
+    case compact, standard, learning
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .compact: return "精简"
+        case .standard: return "标准双语"
+        case .learning: return "学习双语"
+        }
+    }
+}
+
+// The requested default is ORIGINAL ON TOP / CHINESE BELOW.
+enum GameSubtitleMode: String, Codable, CaseIterable, Identifiable {
+    case bilingual, chinese, original
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .bilingual: return "双语"
+        case .chinese: return "仅中文"
+        case .original: return "仅原文"
+        }
+    }
+}
+
+@MainActor
+final class GameLingoStore: ObservableObject {
+    static let shared = GameLingoStore()
+    private static let storageKey = "GameLingo.Direct.3.0"
+
+    private struct Saved: Codable {
+        var profiles: [GameProfile]
+        var activeID: UUID
+        var performance: GamePerformance
+        var pipLayout: GamePiPLayout
+        var subtitleMode: GameSubtitleMode
+        var fontScale: Double
+        var history: [GameSubtitleLine]
+        var onboardingComplete: Bool
+    }
+
+    @Published var profiles: [GameProfile] { didSet { persist() } }
+    @Published var activeID: UUID { didSet { persist() } }
+    @Published var performance: GamePerformance { didSet { persist() } }
+    @Published var pipLayout: GamePiPLayout { didSet { persist() } }
+    @Published var subtitleMode: GameSubtitleMode { didSet { persist() } }
+    @Published var fontScale: Double { didSet { persist() } }
+    @Published var history: [GameSubtitleLine] { didSet { persist() } }
+    @Published var onboardingComplete: Bool { didSet { persist() } }
+
+    private init() {
+        let stored = UserDefaults.standard.data(forKey: Self.storageKey)
+            .flatMap { try? JSONDecoder().decode(Saved.self, from: $0) }
+        let defaultProfile = GameProfile(name: "默认游戏")
+        profiles = stored?.profiles.isEmpty == false ? stored!.profiles : [defaultProfile]
+        activeID = stored?.activeID ?? defaultProfile.id
+        performance = stored?.performance ?? .balanced
+        pipLayout = stored?.pipLayout ?? .standard
+        subtitleMode = stored?.subtitleMode ?? .bilingual
+        fontScale = stored?.fontScale ?? 1.0
+        history = stored?.history ?? []
+        onboardingComplete = stored?.onboardingComplete ?? false
+        if !profiles.contains(where: { $0.id == activeID }), let first = profiles.first {
+            activeID = first.id
+        }
+    }
+
+    var activeProfile: GameProfile {
+        profiles.first(where: { $0.id == activeID }) ?? profiles[0]
+    }
+
+    func selectProfile(_ id: UUID) {
+        guard profiles.contains(where: { $0.id == id }) else { return }
+        activeID = id
+    }
+
+    func saveProfile(_ profile: GameProfile) {
+        if let index = profiles.firstIndex(where: { $0.id == profile.id }) {
+            profiles[index] = profile
+        } else {
+            profiles.append(profile)
+        }
+        activeID = profile.id
+    }
+
+    func createProfile() {
+        let p = GameProfile(name: "新游戏 \(profiles.count + 1)")
+        profiles.append(p)
+        activeID = p.id
+    }
+
+    func deleteActiveProfile() {
+        guard profiles.count > 1 else { return }
+        profiles.removeAll { $0.id == activeID }
+        if let first = profiles.first { activeID = first.id }
+    }
+
+    func add(_ line: GameSubtitleLine) {
+        if let last = history.first,
+           last.original == line.original,
+           last.translated == line.translated,
+           last.game == line.game {
+            return
+        }
+        history.insert(line, at: 0)
+        if history.count > 200 { history = Array(history.prefix(200)) }
+    }
+
+    func clearHistory() { history.removeAll() }
+
+    static func glossaryMap(_ text: String) -> [String: String] {
+        var result: [String: String] = [:]
+        for line in text.components(separatedBy: .newlines) {
+            guard let divider = line.firstIndex(of: "=") else { continue }
+            let a = String(line[..<divider]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let b = String(line[line.index(after: divider)...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !a.isEmpty && !b.isEmpty { result[a] = b }
+        }
+        return result
+    }
+
+    private func persist() {
+        let state = Saved(profiles: profiles, activeID: activeID,
+                          performance: performance, pipLayout: pipLayout,
+                          subtitleMode: subtitleMode, fontScale: fontScale,
+                          history: history, onboardingComplete: onboardingComplete)
+        if let data = try? JSONEncoder().encode(state) {
+            UserDefaults.standard.set(data, forKey: Self.storageKey)
+        }
+    }
+}
