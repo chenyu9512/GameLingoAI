@@ -7,132 +7,217 @@ import CoreMedia
 import CoreVideo
 import ImageIO
 
-// iOS 27 direct screen capture: no extension and no cross-process IPC.
-// The user must grant capture permission using the system screen-sharing picker.
+// iOS 27: screen -> Vision -> on-device Translation -> latest-only bilingual line.
+// ScreenCaptureKit delivers frames on captureQueue; no ReplayKit or App Groups.
 @available(iOS 27.0, *)
-final class DirectGameCapture: NSObject, ObservableObject, SCContentSharingPickerObserver, SCStreamOutput, SCStreamDelegate {
+final class DirectGameCapture: NSObject, ObservableObject,
+                               SCContentSharingPickerObserver, SCStreamOutput, SCStreamDelegate {
     static let shared = DirectGameCapture()
 
     @Published private(set) var phase = "未启动"
-    @Published private(set) var details = "从系统选择整个屏幕，返回游戏后识别与翻译都在本机进行。"
+    @Published private(set) var details = "先准备语言包，再授权捕获整个屏幕。"
+    @Published private(set) var isCapturing = false
     @Published private(set) var frames = 0
     @Published private(set) var scans = 0
     @Published private(set) var translatedCount = 0
+    @Published private(set) var ignoredFrames = 0
     @Published private(set) var original = ""
     @Published private(set) var latest = ""
-    @Published private(set) var isCapturing = false
+    @Published private(set) var latestLine: GameSubtitleLine?
+    @Published private(set) var ocrConfidence: Double = 0
+    @Published private(set) var ocrElapsedMs = 0
+    @Published private(set) var translationElapsedMs = 0
+    @Published private(set) var lastFrameAt: Date?
+    @Published private(set) var failures = 0
+    @Published private(set) var lastError = ""
 
-    private var stream: SCStream?
-    private let captureQueue = DispatchQueue(label: "GameLingo.direct.capture", qos: .utility)
+    private struct Snapshot {
+        var name: String
+        var language: String
+        var roi: CGRect
+        var excluded: CGRect?
+        var glossary: [String: String]
+        var performance: GamePerformance
+
+        static let initial = Snapshot(name: "默认游戏", language: "ja",
+                                      roi: GameOCRBox.dialogue.rect,
+                                      excluded: nil, glossary: [:],
+                                      performance: .balanced)
+    }
+
+    private struct Recognition {
+        let text: String
+        let confidence: Double
+    }
+
+    private let captureQueue = DispatchQueue(label: "GameLingo.ocr.queue", qos: .userInitiated)
     private let gate = NSLock()
-    private var lastAccepted: TimeInterval = 0
-    private var working = false
-    private var pendingText = ""
-    private var stable = 0
-    private var lastFinished = ""
-    private var cache: [String: String] = [:]
-    private var language = "ja"
-    private var region = "bottom"
-    private var observing = false
+    private var config = Snapshot.initial
+    private var busy = false
+    private var lastAcceptedAt: TimeInterval = 0
+    private var lastFingerprint: UInt64 = 0
+    private var lastOCRAt: TimeInterval = 0
+    // Mutable only on captureQueue.
+    private var candidate = ""
+    private var candidateCount = 0
+
+    // Mutable only on the main actor.
+    private var stream: SCStream?
+    private var pickerObserved = false
+    private var captureGeneration = 0
+    private var translationRevision = 0
+    private var pendingTranslation: Task<Void, Never>?
+    private var latestSubmitted = ""
+    private var latestSubmittedAt: TimeInterval = 0
+    private var lastCompleted = ""
+    private var translationCache: [String: String] = [:]
+    private var retries = 0
+    private var captureRetries = 0
+    private var lastRequestedFilter: SCContentFilter?
 
     private override init() {
         super.init()
-        let saved = UserDefaults.standard
-        language = saved.string(forKey: "direct.sourceLanguage") ?? "ja"
-        region = saved.string(forKey: "direct.scanArea") ?? "bottom"
     }
 
-    func configure(language: String, scanArea: String) {
+    // Called from SwiftUI when a selected game profile or power mode changes.
+    func configure(profile: GameProfile, performance: GamePerformance) {
+        let snapshot = Snapshot(name: profile.name, language: profile.language,
+                                roi: profile.region.rect, excluded: profile.excluded?.rect,
+                                glossary: GameLingoStore.glossaryMap(profile.glossary),
+                                performance: performance)
         gate.lock()
-        self.language = language
-        self.region = scanArea
+        config = snapshot
+        lastFingerprint = 0
         gate.unlock()
-        UserDefaults.standard.set(language, forKey: "direct.sourceLanguage")
-        UserDefaults.standard.set(scanArea, forKey: "direct.scanArea")
+        // Ensure no earlier profile's translation can overwrite the new one.
+        translationRevision += 1
+        pendingTranslation?.cancel()
+        pendingTranslation = nil
+        latestSubmitted = ""
+        lastCompleted = ""
+        translationCache.removeAll(keepingCapacity: true)
+        phase = isCapturing ? "已切换游戏设置" : "未启动"
+        details = "当前游戏：" + profile.name
     }
 
     func start() {
-        DispatchQueue.main.async {
-            let picker = SCContentSharingPicker.shared
-            if !self.observing {
-                picker.add(self)
-                self.observing = true
-            }
-            picker.isActive = true
-            self.phase = "等待用户授权"
-            self.details = "请选择整个屏幕（不是仅当前 App），随后切回游戏。"
-            picker.present()
+        let picker = SCContentSharingPicker.shared
+        if !pickerObserved {
+            picker.add(self)
+            pickerObserved = true
         }
+        picker.isActive = true
+        phase = "等待系统授权"
+        details = "请选择整个屏幕，完成后切换到游戏。"
+        picker.present()
     }
 
     func stop() {
-        guard let old = stream else { return }
+        captureGeneration += 1
+        let old = stream
         stream = nil
-        old.stopCapture { [weak self] error in
-            DispatchQueue.main.async {
-                self?.isCapturing = false
-                self?.phase = "已停止"
-                self?.details = error?.localizedDescription ?? "屏幕采集已停止"
-            }
-        }
+        lastRequestedFilter = nil
+        pendingTranslation?.cancel()
+        translationRevision += 1
+        pendingTranslation = nil
+        isCapturing = false
+        phase = "已停止"
+        details = "屏幕采集已结束"
+        old?.stopCapture { _ in }
     }
 
     func contentSharingPicker(_ picker: SCContentSharingPicker,
                               didUpdateWith filter: SCContentFilter,
                               for selectedStream: SCStream?) {
-        DispatchQueue.main.async { self.launch(filter) }
+        DispatchQueue.main.async { [weak self] in
+            self?.captureRetries = 0
+            self?.launch(filter)
+        }
     }
 
-    func contentSharingPicker(_ picker: SCContentSharingPicker, didCancelFor stream: SCStream?) {
+    func contentSharingPicker(_ picker: SCContentSharingPicker,
+                              didCancelFor stream: SCStream?) {
         DispatchQueue.main.async {
             self.phase = "已取消"
-            self.details = "未授予屏幕捕获权限"
+            self.details = "没有授予屏幕捕获权限"
         }
     }
 
     func contentSharingPickerStartDidFailWithError(_ error: Error) {
         DispatchQueue.main.async {
-            self.phase = "系统授权失败"
+            self.phase = "屏幕授权失败"
             self.details = error.localizedDescription
+            self.lastError = error.localizedDescription
+            self.failures += 1
         }
     }
 
     private func launch(_ filter: SCContentFilter) {
-        stop()
-        let config = SCStreamConfiguration()
-        // iOS ScreenCaptureKit manages frame pacing and buffering internally.
-        // minimumFrameInterval and queueDepth are macOS-only API properties.
-        config.capturesAudio = false
-        let newStream = SCStream(filter: filter, configuration: config, delegate: self)
+        captureGeneration += 1
+        let generation = captureGeneration
+        let old = stream
+        old?.stopCapture { _ in }
+        stream = nil
+        isCapturing = false
+        lastRequestedFilter = filter
+
+        let configuration = SCStreamConfiguration()
+        configuration.capturesAudio = false
+        let next = SCStream(filter: filter, configuration: configuration, delegate: self)
         do {
-            try newStream.addStreamOutput(self, type: .screen, sampleHandlerQueue: captureQueue)
-            self.stream = newStream
+            try next.addStreamOutput(self, type: .screen, sampleHandlerQueue: captureQueue)
+            stream = next
             phase = "正在连接屏幕"
-            details = "屏幕数据将在设备内处理"
-            newStream.startCapture { [weak self] error in
+            details = "屏幕内容只在本机识别；不存储原始画面。"
+            next.startCapture { [weak self] error in
                 DispatchQueue.main.async {
+                    guard let self, self.captureGeneration == generation else { return }
                     if let error {
-                        self?.phase = "启动失败"
-                        self?.details = error.localizedDescription
-                        self?.isCapturing = false
+                        self.isCapturing = false
+                        self.phase = "启动失败"
+                        self.details = error.localizedDescription
+                        self.lastError = error.localizedDescription
+                        self.failures += 1
+                        self.retryCaptureIfAppropriate()
                     } else {
-                        self?.phase = "正在采集"
-                        self?.details = "屏幕捕获已启动，请切换到游戏"
-                        self?.isCapturing = true
+                        self.isCapturing = true
+                        self.phase = "等待游戏画面"
+                        self.details = "采集已经启动，正在识别游戏对白"
                     }
                 }
             }
         } catch {
-            phase = "视频流连接失败"
+            phase = "采集连接失败"
             details = error.localizedDescription
+            lastError = error.localizedDescription
+            failures += 1
+        }
+    }
+
+    // Retry only transient stream errors while a valid user-selected filter exists.
+    // Do not silently present the system consent picker.
+    private func retryCaptureIfAppropriate() {
+        guard captureRetries < 2, let filter = lastRequestedFilter else { return }
+        captureRetries += 1
+        let attempt = captureRetries
+        details = "采集暂时中断，正在重试 \(attempt)/2"
+        DispatchQueue.main.asyncAfter(deadline: .now() + Double(attempt * 2)) { [weak self] in
+            guard let self, !self.isCapturing,
+                  self.captureRetries == attempt,
+                  self.lastRequestedFilter != nil else { return }
+            self.launch(filter)
         }
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         DispatchQueue.main.async {
-            self.phase = "采集已停止"
-            self.details = error.localizedDescription
+            guard self.stream === stream else { return }
             self.isCapturing = false
+            self.phase = "采集意外停止"
+            self.details = error.localizedDescription
+            self.lastError = error.localizedDescription
+            self.failures += 1
+            self.retryCaptureIfAppropriate()
         }
     }
 
@@ -140,147 +225,284 @@ final class DirectGameCapture: NSObject, ObservableObject, SCContentSharingPicke
                 of type: SCStreamOutputType) {
         guard type == .screen, sampleBuffer.isValid,
               let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        gate.lock()
+        // Callback is serialized on captureQueue; the lock protects UI settings.
         let now = Date().timeIntervalSince1970
-        let take = !working && now - lastAccepted >= 0.65
-        if take {
-            working = true
-            lastAccepted = now
-        }
-        gate.unlock()
-        guard take else { return }
-
-        // This delegate is already called on the captureQueue, not the UI thread.
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        request.minimumTextHeight = 0.013
         gate.lock()
-        let source = language
-        let scanArea = region
-        gate.unlock()
-        request.recognitionLanguages = [["ja":"ja-JP", "en":"en-US", "ko":"ko-KR"][source] ?? "ja-JP"]
-        if scanArea == "bottom" {
-            request.regionOfInterest = CGRect(x: 0.03, y: 0.03, width: 0.94, height: 0.63)
+        let snapshot = config
+        let shouldAccept = !busy && now - lastAcceptedAt >= snapshot.performance.minimumInterval
+        if shouldAccept {
+            busy = true
+            lastAcceptedAt = now
         }
-        let recognized: String
-        do {
-            try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up, options: [:])
-                .perform([request])
-            let results = (request.results ?? []).compactMap { item -> (String, CGFloat)? in
-                guard let result = item.topCandidates(1).first, result.confidence >= 0.35 else { return nil }
-                let text = result.string.trimmingCharacters(in: .whitespacesAndNewlines)
-                return text.isEmpty ? nil : (text, item.boundingBox.midY)
-            }
-            recognized = results.sorted { $0.1 > $1.1 }.prefix(8).map { $0.0 }.joined(separator: "\n")
-        } catch {
+        gate.unlock()
+        guard shouldAccept else { return }
+
+        defer {
+            gate.lock()
+            busy = false
+            gate.unlock()
+        }
+        let fingerprint = frameFingerprint(buffer)
+        let staticScene = fingerprint != 0 && fingerprint == lastFingerprint
+        // Still recheck static frames periodically: failed translations may retry,
+        // and the same visual frame may need new state after UI changes.
+        if staticScene && now - lastOCRAt < 3.0 {
             DispatchQueue.main.async {
-                self.phase = "OCR 出错"
-                self.details = error.localizedDescription
+                self.ignoredFrames += 1
+                self.lastFrameAt = Date()
             }
-            releaseGate()
             return
         }
+        lastFingerprint = fingerprint
+        lastOCRAt = now
 
-        let text = recognized.trimmingCharacters(in: .whitespacesAndNewlines)
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        let recognition = recognize(buffer, using: snapshot)
+        let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000)
         DispatchQueue.main.async {
             self.frames += 1
             self.scans += 1
+            self.lastFrameAt = Date()
+            self.ocrElapsedMs = elapsedMs
+            self.ocrConfidence = recognition.confidence
         }
+        let text = recognition.text
         guard !text.isEmpty else {
-            releaseGate()
+            DispatchQueue.main.async {
+                self.phase = "等待对白"
+                self.details = "已收到画面，当前识别区域没有可用文字"
+            }
+            candidate = ""
+            candidateCount = 0
             return
         }
-        if text == pendingText { stable += 1 }
-        else { pendingText = text; stable = 1 }
-        guard stable >= 2, text != lastFinished else {
-            releaseGate()
-            return
-        }
-        Task { @MainActor in
-            await self.translate(text, source: source)
-            self.releaseGate()
+        if candidate == text { candidateCount += 1 }
+        else { candidate = text; candidateCount = 1 }
+        let needed = snapshot.performance == .fast ? 1 : 2
+        guard candidateCount >= needed else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.submit(text, profile: snapshot, detectedAt: now)
         }
     }
 
-    @MainActor private func translate(_ text: String, source: String) async {
-        original = text
-        if let cached = cache[text] {
-            latest = cached
-            lastFinished = text
-            phase = "本地缓存"
+    // Cheap frame-change detector; supports packed and planar CVPixelBuffers.
+    // It intentionally samples only a few bytes and does not retain the frame.
+    private func frameFingerprint(_ buffer: CVPixelBuffer) -> UInt64 {
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        let planar = CVPixelBufferGetPlaneCount(buffer) > 0
+        let base = planar ? CVPixelBufferGetBaseAddressOfPlane(buffer, 0)
+                          : CVPixelBufferGetBaseAddress(buffer)
+        guard let base else { return 0 }
+        let strideBytes = planar ? CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
+                                 : CVPixelBufferGetBytesPerRow(buffer)
+        let rows = planar ? CVPixelBufferGetHeightOfPlane(buffer, 0)
+                          : CVPixelBufferGetHeight(buffer)
+        guard strideBytes > 0, rows > 0 else { return 0 }
+        let bytes = base.assumingMemoryBound(to: UInt8.self)
+        var hash: UInt64 = 14695981039346656037
+        for y in Swift.stride(from: 0, to: rows, by: max(1, rows / 17)) {
+            for x in Swift.stride(from: 0, to: strideBytes, by: max(1, strideBytes / 19)) {
+                hash = (hash ^ UInt64(bytes[y * strideBytes + x])) &* 1099511628211
+            }
+        }
+        return hash
+    }
+
+    private func recognize(_ buffer: CVPixelBuffer, using snapshot: Snapshot) -> Recognition {
+        func pass(_ level: VNRequestTextRecognitionLevel) -> Recognition {
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = level
+            request.usesLanguageCorrection = true
+            request.minimumTextHeight = 0.012
+            request.recognitionLanguages = [
+                ["ja": "ja-JP", "en": "en-US", "ko": "ko-KR"][snapshot.language] ?? "ja-JP"
+            ]
+            request.regionOfInterest = snapshot.roi
+            do {
+                try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up, options: [:])
+                    .perform([request])
+                let candidates = (request.results ?? []).compactMap {
+                    item -> (String, CGFloat, CGFloat, Float)? in
+                    guard let candidate = item.topCandidates(1).first,
+                          candidate.confidence >= 0.34,
+                          !snapshot.excluded.map({ $0.contains(
+                              CGPoint(x: item.boundingBox.midX, y: item.boundingBox.midY)) })! else {
+                        return nil
+                    }
+                    let content = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return content.isEmpty ? nil :
+                        (content, item.boundingBox.midY, item.boundingBox.minX, candidate.confidence)
+                }
+                let sorted = candidates.sorted { a, b in
+                    abs(a.1 - b.1) < 0.025 ? a.2 < b.2 : a.1 > b.1
+                }
+                let lines = sorted.prefix(7)
+                let merged = lines.map(\.0).joined(separator: "\n")
+                let confidence = lines.isEmpty ? 0 : lines.map { Double($0.3) }
+                    .reduce(0, +) / Double(lines.count)
+                return Recognition(text: merged, confidence: confidence)
+            } catch {
+                DispatchQueue.main.async {
+                    self.phase = "文字识别失败"
+                    self.details = error.localizedDescription
+                    self.lastError = error.localizedDescription
+                    self.failures += 1
+                }
+                return Recognition(text: "", confidence: 0)
+            }
+        }
+        let first = pass(.fast)
+        // Two-stage OCR: scan cheaply first; refine *only* when characters exist.
+        if snapshot.performance == .balanced, !first.text.isEmpty {
+            let second = pass(.accurate)
+            return second.text.isEmpty ? first : second
+        }
+        return first
+    }
+
+    @MainActor
+    private func submit(_ text: String, profile: Snapshot, detectedAt: TimeInterval) {
+        let now = Date().timeIntervalSince1970
+        if text == lastCompleted { return }
+        if text == latestSubmitted && now - latestSubmittedAt < Double(2 + retries * 2) {
             return
         }
-        phase = "设备内翻译中"
-        details = "识别到 \(text.count) 个字符"
+        latestSubmitted = text
+        latestSubmittedAt = now
+        translationRevision += 1
+        let revision = translationRevision
+        pendingTranslation?.cancel()
+        phase = "翻译中"
+        details = "已识别 \(text.count) 个字符 · 置信度 \(Int(ocrConfidence * 100))%"
+        pendingTranslation = Task { @MainActor [weak self] in
+            await self?.translate(text, profile: profile, revision: revision,
+                                  detectedAt: detectedAt)
+        }
+    }
+
+    @MainActor
+    private func translate(_ text: String, profile: Snapshot,
+                           revision: Int, detectedAt: TimeInterval) async {
+        let started = CFAbsoluteTimeGetCurrent()
+        let key = profile.name + "|" + profile.language + "|" + text
         do {
-            let session = TranslationSession(
-                installedSource: Locale.Language(identifier: source),
-                target: Locale.Language(identifier: "zh-Hans")
-            )
-            let translated = try await session.translate(text).targetText
-            let result = translated.trimmingCharacters(in: .whitespacesAndNewlines)
+            let result: String
+            if let exact = profile.glossary[text] {
+                result = exact
+            } else if let cached = translationCache[key] {
+                result = cached
+            } else {
+                // Offline-only initializer: cannot request network translations.
+                let session = TranslationSession(
+                    installedSource: Locale.Language(identifier: profile.language),
+                    target: Locale.Language(identifier: "zh-Hans"))
+                let response = try await session.translate(text)
+                result = response.targetText.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            guard revision == translationRevision && !Task.isCancelled else { return }
             guard !result.isEmpty else {
                 phase = "空译文"
-                details = "翻译引擎返回空结果"
+                details = "系统没有返回翻译内容"
+                failures += 1
+                retries = min(retries + 1, 3)
                 return
             }
-            cache[text] = result
-            if cache.count > 120 { cache.removeAll(keepingCapacity: true) }
-            lastFinished = text
+            translationCache[key] = result
+            if translationCache.count > 160 { translationCache.removeAll(keepingCapacity: true) }
+            retries = 0
+            lastCompleted = text
+            original = text
             latest = result
             translatedCount += 1
-            phase = "翻译已更新"
-            details = "无需扩展，设备内完成"
+            translationElapsedMs = Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
+            phase = "双语字幕已更新"
+            details = "识别 \(ocrElapsedMs)ms · 翻译 \(translationElapsedMs)ms"
+            let entry = GameSubtitleLine(original: text, translated: result,
+                                         game: profile.name, timestamp: Date(),
+                                         elapsedMs: Int((Date().timeIntervalSince1970 - detectedAt) * 1000))
+            latestLine = entry
+            GameLingoStore.shared.add(entry)
         } catch {
+            guard revision == translationRevision && !Task.isCancelled else { return }
+            retries = min(retries + 1, 3)
             phase = "本地翻译失败"
             details = error.localizedDescription
-            // Do not mark as complete; the next stable frame can retry.
+            lastError = error.localizedDescription
+            failures += 1
+            // Do not change lastCompleted, so the next stable OCR may retry.
         }
     }
 
-    private func releaseGate() {
-        gate.lock()
-        working = false
-        gate.unlock()
+    func heartbeat() {
+        guard isCapturing, let stamp = lastFrameAt else { return }
+        if Date().timeIntervalSince(stamp) > 9 {
+            phase = "没有新的屏幕帧"
+            details = "采集可能被系统暂停；返回 App 检查授权与 PiP 状态"
+        }
+    }
+
+    var diagnostics: String {
+        let stamp = lastFrameAt.map { ISO8601DateFormatter().string(from: $0) } ?? "none"
+        return """
+        GameLingo Direct Diagnostics (no screenshot contents)
+        Game: \(GameLingoStore.shared.activeProfile.name)
+        Mode: \(GameLingoStore.shared.performance.title)
+        Phase: \(phase)
+        Details: \(details)
+        Capturing: \(isCapturing)
+        Last frame: \(stamp)
+        OCR scans: \(scans) / reused frames: \(ignoredFrames)
+        Translations: \(translatedCount)
+        OCR: \(ocrElapsedMs)ms, confidence: \(Int(ocrConfidence * 100))%
+        Translation: \(translationElapsedMs)ms
+        Errors: \(failures) / last: \(lastError)
+        """
     }
 }
 
 @available(iOS 27.0, *)
 struct DirectCapturePanel: View {
     @ObservedObject private var capture = DirectGameCapture.shared
-    let language: String
-    let scanArea: String
-    let onSubtitle: (String) -> Void
+    let profile: GameProfile
+    let performance: GamePerformance
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 9) {
-                Image(systemName: capture.isCapturing ? "record.circle.fill" : "display")
-                Text("iOS 27 单进程屏幕采集")
-                    .font(.system(size: 12, weight: .semibold))
-            }.foregroundStyle(.mint)
-            Text(capture.phase).font(.headline)
+        VStack(alignment: .leading, spacing: 11) {
+            Label("iOS 27 · 本机屏幕捕获", systemImage: "display")
+                .font(.headline).foregroundStyle(.mint)
+            HStack {
+                Text(capture.phase).font(.subheadline.bold())
+                Spacer()
+                Circle().fill(capture.isCapturing ? Color.green : Color.orange)
+                    .frame(width: 9, height: 9)
+            }
             Text(capture.details).font(.caption).foregroundStyle(.secondary)
             HStack {
-                Text("OCR \(capture.scans)")
-                Spacer()
-                Text("翻译 \(capture.translatedCount)")
-            }.font(.caption.monospacedDigit())
-            if !capture.latest.isEmpty {
-                Text(capture.latest).font(.headline)
+                item("\(capture.scans)", "OCR")
+                item("\(capture.translatedCount)", "翻译")
+                item("\(capture.ocrElapsedMs)ms", "识别耗时")
             }
-            Button(capture.isCapturing ? "停止采集" : "授权并捕获整个屏幕") {
-                if capture.isCapturing { capture.stop() }
-                else { capture.start() }
-            }.buttonStyle(.borderedProminent)
+            Button(capture.isCapturing ? "结束采集" : "授权捕获整个屏幕") {
+                if capture.isCapturing { capture.stop() } else { capture.start() }
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.mint)
         }
-        .onAppear { capture.configure(language: language, scanArea: scanArea) }
-        .onChange(of: language) { _, value in capture.configure(language: value, scanArea: scanArea) }
-        .onChange(of: scanArea) { _, value in capture.configure(language: language, scanArea: value) }
-        .onReceive(capture.$latest) { text in
-            guard !text.isEmpty else { return }
-            onSubtitle(text)
+        .onAppear { capture.configure(profile: profile, performance: performance) }
+        .onChange(of: profile) { _, updated in
+            capture.configure(profile: updated, performance: performance)
         }
+        .onChange(of: performance) { _, updated in
+            capture.configure(profile: profile, performance: updated)
+        }
+    }
+
+    private func item(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .center, spacing: 4) {
+            Text(value).font(.caption.bold().monospacedDigit())
+            Text(label).font(.system(size: 10)).foregroundStyle(.secondary)
+        }.frame(maxWidth: .infinity)
     }
 }
