@@ -2,6 +2,15 @@
 
 > **目标：解决 SideStore 对 ReplayKit 扩展 App Groups 共享不稳定的问题。** 新增的 `ios-direct-unsigned` 工作流仅构建主 App，不嵌入 BroadcastUpload 扩展，也不请求 App Groups 权限；用户授权后通过 iOS 27 ScreenCaptureKit 直接获得屏幕帧，Vision OCR 与 Apple Translation 均在 iPhone 本地运行。
 
+## iOS 27 直采版本的安装识别（2026-10-22 修订）
+
+- **直采版本安装后名称为 `GameLingo Direct`**，Bundle ID 使用单独的 `com.example.GameLingoAI.direct`（如果使用自定义基础 ID 则追加 `.direct`）。这能避免 SideStore 将它误认为先前需要 App Groups 的 ReplayKit 版。
+- 工作流仍为 **`ios-direct-unsigned`**，IPA 为 `GameLingoAI-Direct-iOS27-unsigned.ipa`。不要从 `ios-offline-unsigned` 下载旧包。
+- 直采编译只包含独立的 `DirectHomeView.swift`、`DirectGameCapture.swift` 与画中画渲染；**不编译 `SharedSubtitles` / `SubtitleInbox`，不嵌入 `BroadcastUpload.appex`，也不请求 `com.apple.security.application-groups`**。
+- 构建产物包含 `direct-package-audit.txt`，其中应出现 `com.example.GameLingoAI.direct`、`GameLingo Direct` 与 `PASS: no broadcast extension`。
+- 如果安装过程中弹出 **SideStore.OperationError 1012**，其含义是 *SideStore 自己* 无法访问自己的共享备份目录，而不是 GameLingo AI 申请了 App Groups。请参考 https://docs.sidestore.io/docs/troubleshooting/error-codes 并通过 iLoader 更新/修复 SideStore 的自身签名。
+- **新版本尚需 Xcode 27.1 编译与真机运行验证**。在侧载后还要确认系统的屏幕采集授权、Apple 离线语言包、PiP 后台表现。
+
 ## 新版本编译与安装
 
 1. 必须使用 **iOS 27 或更新版本**。如果手机仍是 iOS 26，不能安装此直采 IPA；保留原来的 `ios-offline-unsigned` 工作流供旧系统测试。
