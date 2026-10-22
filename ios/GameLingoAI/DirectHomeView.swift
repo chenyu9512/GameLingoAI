@@ -6,6 +6,7 @@ import UIKit
 
 // iOS 27 single-App user interface. No ReplayKit extension or App Groups.
 @available(iOS 27.0, *)
+@MainActor
 struct DirectHomeView: View {
     @StateObject private var store = GameLingoStore.shared
     @ObservedObject private var capture = DirectGameCapture.shared
