@@ -1,3 +1,46 @@
+# GameLingo Direct 3.0 · 双语游戏实时翻译
+
+**2026-10-22 源码升级说明。默认字幕是上方原文、下方中文。** 这是单一 iPhone App 的 iOS 27 版本；不需要 OpenAI API、翻译服务器、App Groups 或 ReplayKit 广播扩展。
+
+## 本轮功能
+
+- **字幕双语输出**：PiP 和主界面同时显示游戏原文（上方青绿色）与简体中文（下方白色），可选择“仅中文 / 仅原文”，以及精简 / 标准双语 / 学习布局、80%～140% 字号。
+- **新画面优先流水线**：通过 CVPixelBuffer 轻量像素指纹跳过部分不变画面；OCR 结果稳定检查；新的对白取消旧翻译任务，只有最新版本结果才能刷新字幕。快速、平衡、省电三种节奏；平衡档使用快速+精确双层 OCR。
+- **多游戏配置**：每游戏单独保存语言、Vision 识别区域、排除区域和精确匹配术语表。可以导入截图拖动识别框，还能导出 / 粘贴恢复 JSON 配置备份。
+- **设备内历史**：保留最多 200 条已翻译的原文与中文，可以搜索、分享文本、清空；不保存游戏画面，不调用外部翻译 API。
+- **故障诊断**：采集状态、扫描次数、跳过静态画面、OCR 置信度、识别与翻译耗时、错误说明，可导出不含画面内容的诊断文本。
+- **稳定性保护**：翻译失败保留重试机会；过期翻译不覆盖新句；屏幕流异常停止时最多有限重试两次，不绕过系统授权。所有数据保存在 App 自己的本地空间。
+
+## 构建与更新（Windows + SideStore）
+
+1. Codemagic 选择 GitHub \`main\` 的最新提交，工作流 **\`ios-direct-unsigned\`**，使用 Xcode 27.1。
+2. 该工作流会执行 \`tools/verify_direct_release.py\` 静态检查、Xcode 真正编译、单 App 包审计。成功才会产出 **\`GameLingoAI-Direct-iOS27-unsigned.ipa\`**。
+3. 用 SideStore 导入、签名并安装新 IPA。应用名 **GameLingo Direct**，Bundle ID 与旧 ReplayKit 版不同，并且不请求 App Groups 权限。
+4. 打开 App → 准备系统语言包 → 点击“双语测试”→ 开启 PiP → 在系统授权窗口选择**整个屏幕** → 回到游戏。
+5. 根据游戏对白的位置，在“游戏配置”用截图调整识别框，并保存；根据游戏画面刷新速率选择快速、平衡或省电模式。
+
+## 必须实测的项目（不能只靠编译通过）
+
+| 验收项目 | 验收方式 |
+|---|---|
+| 双语小窗 | 最小常用 PiP 下上原文、下中文均居中且不裁切；翻页顺序自然 |
+| 真正全屏直采 | 切换到游戏后 OCR 扫描计数继续增长，不只是主 App 预览成功 |
+| 翻译更新 | 快速切换 10 条对白，旧翻译不能覆盖新对白 |
+| 语言包 | 飞行模式下翻译已安装语言；未安装语言显示可理解错误 |
+| 运行可靠性 | 连续使用至少 30 分钟，系统中断时状态与有限重试正常 |
+| 性能 | 比较快速、平衡、省电的处理时间、耗电和发热 |
+| 游戏预设与历史 | 新增、切换、导出、恢复配置及清空字幕历史 |
+| 游戏声音 | 画中画开启后游戏音频不被独占或意外静音 |
+
+**状态：代码已集成到 GitHub，尚未完成本轮 Codemagic Swift 编译 / SideStore 真机验收。** iOS 27 虽可使用 ScreenCaptureKit 全屏采集，但系统在后台可能调度、暂停某些任务；PiP 位置和大小由 iOS 控制。不承诺每款游戏都能持续翻译，须以真机结果为准。
+
+官方参考：
+- https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-on-ios
+- https://developer.apple.com/documentation/translation/translationsession
+- https://developer.apple.com/documentation/vision/vnrecognizetextrequest/recognitionlevel
+
+---
+
 # GameLingo AI — iOS 27 单机直采版本（新增）
 
 > **目标：解决 SideStore 对 ReplayKit 扩展 App Groups 共享不稳定的问题。** 新增的 `ios-direct-unsigned` 工作流仅构建主 App，不嵌入 BroadcastUpload 扩展，也不请求 App Groups 权限；用户授权后通过 iOS 27 ScreenCaptureKit 直接获得屏幕帧，Vision OCR 与 Apple Translation 均在 iPhone 本地运行。
