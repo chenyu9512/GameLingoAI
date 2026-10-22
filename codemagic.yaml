@@ -89,9 +89,34 @@ workflows:
             echo "Build succeeded"
             tail -n 30 "$BUILD_LOG"
           else
-            echo "===== Compiler diagnostics ====="
-            grep -nE 'error:|warning:|does not conform|failed' "$BUILD_LOG" | tail -n 120 || true
-            tail -n 60 "$BUILD_LOG"
+            echo "===== PRIMARY SWIFT ERRORS (WITH CONTEXT) ====="
+            ERROR_FILE="$CM_BUILD_DIR/artifacts/compiler-errors-direct.txt"
+            awk '
+              /error:|does not conform|ambiguous use of|no member|cannot convert|missing argument/ {
+                start = NR - 3
+                if (start < 1) start = 1
+                for (i = start; i < NR; i++) if (i in prev) print prev[i]
+                print NR ":" $0
+                trailing = 7
+                found = 1
+              }
+              trailing > 0 && !/error:|does not conform|ambiguous use of|no member|cannot convert|missing argument/ {
+                print NR ":" $0
+                trailing--
+              }
+              {
+                prev[NR] = NR ":" $0
+                delete prev[NR - 3]
+              }
+              END {
+                if (!found) print "No compiler error line found in text output; attach xcodebuild-direct.log"
+              }
+            ' "$BUILD_LOG" > "$ERROR_FILE"
+            echo "===== FIRST 100 COMPILER DIAGNOSTIC LINES ====="
+            head -n 100 "$ERROR_FILE"
+            echo "===== BUILD SUMMARY ====="
+            tail -n 18 "$BUILD_LOG"
+            echo "For support: download artifacts/compiler-errors-direct.txt"
             exit 65
           fi
       - name: Package unsigned IPA for SideStore
@@ -104,4 +129,5 @@ workflows:
           rm -rf Payload
     artifacts:
       - artifacts/GameLingoAI-Direct-iOS27-unsigned.ipa
+      - artifacts/compiler-errors-direct.txt
       - artifacts/xcodebuild-direct.log
