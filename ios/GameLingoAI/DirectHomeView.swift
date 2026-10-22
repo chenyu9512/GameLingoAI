@@ -25,6 +25,9 @@ struct DirectHomeView: View {
     @State private var screenshotConfiguration: TranslationSession.Configuration?
     @State private var historySearch = ""
     @State private var showingOnboarding = false
+    @State private var showingRestore = false
+    @State private var restoreJSONString = ""
+    @State private var restoreMessage = ""
 
     private let mint = Color(red: 0.25, green: 0.94, blue: 0.78)
     private let navy = Color(red: 0.035, green: 0.065, blue: 0.12)
@@ -365,6 +368,40 @@ struct DirectHomeView: View {
                 }.pickerStyle(.segmented)
                 Text("默认双语：上方显示游戏原文，下方显示中文；字号可在实时页调整。")
                     .font(.caption2).foregroundStyle(.white.opacity(0.7))
+            }
+
+            panel {
+                sectionTitle("游戏配置备份", icon: "square.and.arrow.up")
+                Text("导出与恢复游戏名称、语言、识别区域和术语表。内容仅在本机处理。")
+                    .font(.caption).foregroundStyle(.white.opacity(0.7))
+                ShareLink(item: store.profileBackupJSON) {
+                    Label("导出配置 JSON", systemImage: "square.and.arrow.up")
+                }.buttonStyle(.bordered)
+                Button(showingRestore ? "收起导入" : "粘贴备份内容恢复") {
+                    showingRestore.toggle()
+                }.buttonStyle(.bordered)
+                if showingRestore {
+                    TextEditor(text: $restoreJSONString)
+                        .frame(height: 118)
+                        .scrollContentBackground(.hidden)
+                        .padding(5)
+                        .background(.black.opacity(0.2),
+                                    in: RoundedRectangle(cornerRadius: 10))
+                    Button("导入配置") {
+                        if store.restoreProfiles(from: restoreJSONString) {
+                            profileDraft = store.activeProfile
+                            restoreMessage = "已恢复游戏配置"
+                            showingRestore = false
+                            restoreJSONString = ""
+                        } else {
+                            restoreMessage = "无效的配置 JSON，原有数据未改变"
+                        }
+                    }.buttonStyle(.borderedProminent).tint(mint)
+                }
+                if !restoreMessage.isEmpty {
+                    Text(restoreMessage).font(.caption)
+                        .foregroundStyle(.white.opacity(0.8))
+                }
             }
 
             Button {
