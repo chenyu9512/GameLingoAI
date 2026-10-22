@@ -1,3 +1,24 @@
+# GameLingo AI — iOS 27 单机直采版本（新增）
+
+> **目标：解决 SideStore 对 ReplayKit 扩展 App Groups 共享不稳定的问题。** 新增的 `ios-direct-unsigned` 工作流仅构建主 App，不嵌入 BroadcastUpload 扩展，也不请求 App Groups 权限；用户授权后通过 iOS 27 ScreenCaptureKit 直接获得屏幕帧，Vision OCR 与 Apple Translation 均在 iPhone 本地运行。
+
+## 新版本编译与安装
+
+1. 必须使用 **iOS 27 或更新版本**。如果手机仍是 iOS 26，不能安装此直采 IPA；保留原来的 `ios-offline-unsigned` 工作流供旧系统测试。
+2. Codemagic 中选择 `main` 分支，工作流选 **`ios-direct-unsigned`**，不要再选择 `ios-offline-unsigned`。
+3. 构建成功后下载 `GameLingoAI-Direct-iOS27-unsigned.ipa`，使用 SideStore 侧载并签名。这个 IPA 只有单个 App，没有独立的广播扩展，也不需要创建 App Group。
+4. 在 GameLingo 中下载所需 Apple 本地语言包，开启画中画字幕，再点击 **授权并捕获整个屏幕**。
+5. 系统 picker 里请选择**整个屏幕**，不要只选择 GameLingo 自己，随后切到游戏。采集与翻译状态可在 App 中查看。
+
+**限制与验证：** 这是针对 iOS 27 SDK 新能力的代码实现，已与 Apple 官方 API 文档核对，但尚未在真实 iPhone 上完成云端编译及运行验收。某些游戏或系统状态可能限制捕获；PiP 字幕的后台刷新依赖 iOS 的正常运行机制。请查看构建日志 `xcodebuild-direct.log` 来定位 Swift 编译问题。
+
+**为什么改变？** SideStore issue #1437 已记录扩展通过 SideStore 侧载后无法读取 App Groups `UserDefaults` 的情况。旧架构继续调整 Group ID 并不能保证解决。苹果官方 iOS 27 ScreenCaptureKit 提供经系统授权的主 App 全屏采集，减少这条依赖。
+
+- Apple: https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-on-ios
+- SideStore: https://github.com/SideStore/SideStore/issues/1437
+
+---
+
 # GameLingo AI Offline v1.3 — 仅使用一台 iPhone 的免费侧载实验项目
 
 > **重要：尚未在 macOS/Xcode 或 iPhone 真机编译测试，也未上传 GitHub。** 这是源代码，不是可立即安装的 IPA。不要以为 PiP 同屏覆盖已完成验证。
