@@ -169,7 +169,7 @@ final class GameLingoStore: ObservableObject {
 
     func clearHistory() { history.removeAll() }
 
-    static func glossaryMap(_ text: String) -> [String: String] {
+    nonisolated static func glossaryMap(_ text: String) -> [String: String] {
         var result: [String: String] = [:]
         for line in text.components(separatedBy: .newlines) {
             guard let divider = line.firstIndex(of: "=") else { continue }
