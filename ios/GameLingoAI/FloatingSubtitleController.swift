@@ -94,8 +94,10 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
             return
         }
 
-        renderFrame()
         if previewLayer.status == .failed { previewLayer.flushAndRemoveImage() }
+        // Prime a real video frame *after* clearing a failed renderer;
+        // otherwise PiP may start with an empty / black buffer.
+        renderFrame()
         if pip.isPictureInPictureActive {
             status = "悬浮字幕正在显示"
             return
@@ -280,9 +282,10 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
            let attachment = attachmentArray.first {
             attachment[kCMSampleAttachmentKey_DisplayImmediately] = true
         }
-        if previewLayer.status == .failed { previewLayer.flush() }
-        if previewLayer.isReadyForMoreMediaData {
-            previewLayer.enqueue(sampleBuffer)
+        let sampleRenderer = previewLayer.sampleBufferRenderer
+        if sampleRenderer.status == .failed { sampleRenderer.flush() }
+        if sampleRenderer.isReadyForMoreMediaData {
+            sampleRenderer.enqueue(sampleBuffer)
         }
     }
 
@@ -294,6 +297,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         isActive = true
         status = "同屏字幕运行中：现在可以切换回游戏"
+        renderFrame()
         beginFrameTimer()
     }
 
