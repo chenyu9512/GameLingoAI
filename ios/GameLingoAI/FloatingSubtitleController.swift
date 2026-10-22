@@ -14,6 +14,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
                                        AVPictureInPictureSampleBufferPlaybackDelegate {
     @Published private(set) var isActive = false
     @Published private(set) var status = "悬浮字幕未启动"
+    @Published private(set) var outputFrameCount = 0
 
     let previewLayer = AVSampleBufferDisplayLayer()
     private var pictureInPicture: AVPictureInPictureController?
@@ -286,6 +287,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         if sampleRenderer.status == .failed { sampleRenderer.flush() }
         if sampleRenderer.isReadyForMoreMediaData {
             sampleRenderer.enqueue(sampleBuffer)
+            outputFrameCount += 1
         }
     }
 
