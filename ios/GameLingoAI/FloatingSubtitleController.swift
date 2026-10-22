@@ -2,6 +2,7 @@ import AVFoundation
 import AVKit
 import CoreMedia
 import CoreVideo
+import CoreImage
 import QuartzCore
 import SwiftUI
 import UIKit
@@ -17,8 +18,9 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     let previewLayer = AVSampleBufferDisplayLayer()
     private var pictureInPicture: AVPictureInPictureController?
     private var frameTimer: Timer?
-    private var currentText = "等待游戏字幕…"
+    private var currentText = "字幕预览 ↑ ABC 123"
     private var lastFrameTime: Double = 0
+    private let ciContext = CIContext(options: [.cacheIntermediates: false])
 
     override init() {
         super.init()
@@ -144,19 +146,12 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
                                                kCVPixelFormatType_32BGRA,
                                                properties as CFDictionary, &pixelBuffer)
         guard createStatus == kCVReturnSuccess, let buffer = pixelBuffer else { return }
-        CVPixelBufferLockBaseAddress(buffer, [])
-        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
-        guard let baseAddress = CVPixelBufferGetBaseAddress(buffer),
-              let colorSpace = cgImage.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB),
-              let drawing = CGContext(data: baseAddress, width: 640, height: 360,
-                                      bitsPerComponent: 8,
-                                      bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
-                                      space: colorSpace,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
-        else { return }
-        drawing.translateBy(x: 0, y: 360)
-        drawing.scaleBy(x: 1, y: -1)
-        drawing.draw(cgImage, in: CGRect(x: 0, y: 0, width: 640, height: 360))
+        // Preserve the renderer's natural pixel orientation. The previous
+        // flipped CGContext introduced upside-down PiP captions.
+        let sourceImage = CIImage(cgImage: cgImage)
+        ciContext.render(sourceImage, to: buffer,
+                         bounds: sourceImage.extent,
+                         colorSpace: CGColorSpaceCreateDeviceRGB())
 
         var formatDescription: CMVideoFormatDescription?
         guard CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault,
