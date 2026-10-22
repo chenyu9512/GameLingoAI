@@ -10,6 +10,7 @@ workflows:
         script: |
           set -e
           python3 tools/prepare_build.py
+          python3 tools/generate_app_icon.py
           python3 tools/build_xcodeproj.py
       - name: Compile iOS app and ReplayKit extension (no code signing)
         script: |
