@@ -62,6 +62,7 @@ workflows:
           set -e
           python3 tools/prepare_build.py
           GAMELINGO_DIRECT_CAPTURE=1 python3 tools/build_xcodeproj.py
+          python3 tools/verify_direct_release.py
       - name: Compile direct-capture iPhone app
         script: |
           set -e
