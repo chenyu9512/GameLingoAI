@@ -80,6 +80,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
     }
 
     // Called from SwiftUI when a selected game profile or power mode changes.
+    @MainActor
     func configure(profile: GameProfile, performance: GamePerformance) {
         let snapshot = Snapshot(name: profile.name, language: profile.language,
                                 roi: profile.region.rect, excluded: profile.excluded?.rect,
@@ -87,8 +88,12 @@ final class DirectGameCapture: NSObject, ObservableObject,
                                 performance: performance)
         gate.lock()
         config = snapshot
-        lastFingerprint = 0
         gate.unlock()
+        captureQueue.async { [weak self] in
+            self?.lastFingerprint = 0
+            self?.candidate = ""
+            self?.candidateCount = 0
+        }
         // Ensure no earlier profile's translation can overwrite the new one.
         translationRevision += 1
         pendingTranslation?.cancel()
@@ -445,6 +450,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         }
     }
 
+    @MainActor
     var diagnostics: String {
         let stamp = lastFrameAt.map { ISO8601DateFormatter().string(from: $0) } ?? "none"
         return """
