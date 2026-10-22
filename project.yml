@@ -1,0 +1,42 @@
+name: GameLingoAI
+options:
+  deploymentTarget:
+    iOS: "26.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+targets:
+  GameLingoAI:
+    type: application
+    platform: iOS
+    sources:
+      - path: ios/GameLingoAI
+        excludes:
+          - "Info.plist"
+          - "*.entitlements"
+      - path: ios/Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.GameLingoAI
+        INFOPLIST_FILE: ios/GameLingoAI/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ios/GameLingoAI/GameLingoAI.entitlements
+    dependencies:
+      - target: BroadcastUpload
+        embed: true
+  BroadcastUpload:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ios/BroadcastUpload
+        excludes:
+          - "Info.plist"
+          - "*.entitlements"
+      - path: ios/Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.GameLingoAI.BroadcastUpload
+        INFOPLIST_FILE: ios/BroadcastUpload/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ios/BroadcastUpload/BroadcastUpload.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES

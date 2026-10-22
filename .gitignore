@@ -1,0 +1,14 @@
+# Build outputs & secrets
+.DS_Store
+*.ipa
+*.xcarchive
+Build/
+DerivedData/
+*.mobileprovision
+*.p12
+*.p8
+*.key
+.app_bundle_id
+*.bak
+__pycache__/
+.env

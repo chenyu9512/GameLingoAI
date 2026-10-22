@@ -1,0 +1,494 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+		3BF2EF0F959D5BA56965EDFE /* build:extension:embed */ = {
+			isa = PBXBuildFile;
+			fileRef = FF78BD243877B256BF1B3408;
+			settings = {
+			ATTRIBUTES = (
+			RemoveHeadersOnCopy,
+		);
+		};
+		};
+		9465CC4952DF0509A28E969B /* build:ios/BroadcastUpload/SampleHandler.swift:ext */ = {
+			isa = PBXBuildFile;
+			fileRef = C8CB5694DDB55F4F5D512D3F;
+		};
+		4C78A965D55C97F09ED0BAB0 /* build:ios/GameLingoAI/ContentView.swift:app */ = {
+			isa = PBXBuildFile;
+			fileRef = 3BE2EA3F678C9BA7F8B4DE8D;
+		};
+		8D2D5FB8CC6D0C001AC44479 /* build:ios/GameLingoAI/FloatingSubtitleController.swift:app */ = {
+			isa = PBXBuildFile;
+			fileRef = 480979C46DCF4EB9A6471D24;
+		};
+		9B78DB7E18D71E55705A0CB6 /* build:ios/GameLingoAI/GameLingoAIApp.swift:app */ = {
+			isa = PBXBuildFile;
+			fileRef = 7BE475DE1CB1F8D76FEB81AE;
+		};
+		A8020DD27F7782D03F8921DE /* build:ios/GameLingoAI/SubtitleInbox.swift:app */ = {
+			isa = PBXBuildFile;
+			fileRef = E9750402CEE38ECEF2A7A1BD;
+		};
+		79EFF054AB29E8B7D6D9DA85 /* build:ios/Shared/BuildIdentity.swift:app */ = {
+			isa = PBXBuildFile;
+			fileRef = 913AFA48D2582B803653B4CD;
+		};
+		0D26F2C3F29530B77CD040B0 /* build:ios/Shared/BuildIdentity.swift:ext */ = {
+			isa = PBXBuildFile;
+			fileRef = 913AFA48D2582B803653B4CD;
+		};
+		6771AECEE47377FAE097ADA9 /* build:ios/Shared/SubtitleMessage.swift:app */ = {
+			isa = PBXBuildFile;
+			fileRef = CE030BBCBF2EC2D8AF4B40FF;
+		};
+		C36CD7CBD9A2BA2EDFD34C49 /* build:ios/Shared/SubtitleMessage.swift:ext */ = {
+			isa = PBXBuildFile;
+			fileRef = CE030BBCBF2EC2D8AF4B40FF;
+		};
+		59882E9833F169D18FAA95C7 /* proxy:extension */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B25CF16007ABAFF9D21D5A6C;
+			proxyType = 1;
+			remoteGlobalIDString = 9831A0ED7992645038323751;
+			remoteInfo = BroadcastUpload;
+		};
+		F0AB04EE052351C80F3286E9 /* phase:embed */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+			3BF2EF0F959D5BA56965EDFE,
+		);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A47E5D63D41C915F30D54B62 /* fileref:ios/BroadcastUpload/BroadcastUpload.entitlements */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = text.plist.entitlements;
+			path = BroadcastUpload.entitlements;
+			sourceTree = "<group>";
+		};
+		EC0392D1394441AA68760602 /* fileref:ios/BroadcastUpload/Info.plist */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = text.plist.xml;
+			path = Info.plist;
+			sourceTree = "<group>";
+		};
+		C8CB5694DDB55F4F5D512D3F /* fileref:ios/BroadcastUpload/SampleHandler.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = SampleHandler.swift;
+			sourceTree = "<group>";
+		};
+		3BE2EA3F678C9BA7F8B4DE8D /* fileref:ios/GameLingoAI/ContentView.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = ContentView.swift;
+			sourceTree = "<group>";
+		};
+		480979C46DCF4EB9A6471D24 /* fileref:ios/GameLingoAI/FloatingSubtitleController.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = FloatingSubtitleController.swift;
+			sourceTree = "<group>";
+		};
+		D3E2B224D8D0B44AD7DEE939 /* fileref:ios/GameLingoAI/GameLingoAI.entitlements */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = text.plist.entitlements;
+			path = GameLingoAI.entitlements;
+			sourceTree = "<group>";
+		};
+		7BE475DE1CB1F8D76FEB81AE /* fileref:ios/GameLingoAI/GameLingoAIApp.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = GameLingoAIApp.swift;
+			sourceTree = "<group>";
+		};
+		A034ADFC49E3101521F756ED /* fileref:ios/GameLingoAI/Info.plist */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = text.plist.xml;
+			path = Info.plist;
+			sourceTree = "<group>";
+		};
+		E9750402CEE38ECEF2A7A1BD /* fileref:ios/GameLingoAI/SubtitleInbox.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = SubtitleInbox.swift;
+			sourceTree = "<group>";
+		};
+		913AFA48D2582B803653B4CD /* fileref:ios/Shared/BuildIdentity.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = BuildIdentity.swift;
+			sourceTree = "<group>";
+		};
+		CE030BBCBF2EC2D8AF4B40FF /* fileref:ios/Shared/SubtitleMessage.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = SubtitleMessage.swift;
+			sourceTree = "<group>";
+		};
+		9F358B13F44DE59E1E33F607 /* prod:app */ = {
+			isa = PBXFileReference;
+			explicitFileType = wrapper.application;
+			includeInIndex = 0;
+			path = GameLingoAI.app;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		FF78BD243877B256BF1B3408 /* prod:extension */ = {
+			isa = PBXFileReference;
+			explicitFileType = "wrapper.app-extension";
+			includeInIndex = 0;
+			path = BroadcastUpload.appex;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		5B9773D84493B3D713DB9AC0 /* phase:frameworks:app */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+		);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5ED4626A2786D185F7EFB709 /* phase:frameworks:ext */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+		);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CF8D0BD4B75E8C2C174692A5 /* group:app */ = {
+			isa = PBXGroup;
+			children = (
+			7BE475DE1CB1F8D76FEB81AE,
+			3BE2EA3F678C9BA7F8B4DE8D,
+			E9750402CEE38ECEF2A7A1BD,
+			480979C46DCF4EB9A6471D24,
+			A034ADFC49E3101521F756ED,
+			D3E2B224D8D0B44AD7DEE939,
+		);
+			path = GameLingoAI;
+			sourceTree = "<group>";
+		};
+		BD77C7E93EF841BACCCB61E9 /* group:extension */ = {
+			isa = PBXGroup;
+			children = (
+			C8CB5694DDB55F4F5D512D3F,
+			EC0392D1394441AA68760602,
+			A47E5D63D41C915F30D54B62,
+		);
+			path = BroadcastUpload;
+			sourceTree = "<group>";
+		};
+		AEC055979FBB39CE216AF3FC /* group:ios */ = {
+			isa = PBXGroup;
+			children = (
+			CF8D0BD4B75E8C2C174692A5,
+			BD77C7E93EF841BACCCB61E9,
+			7A6860A1A04070265E6C4DE6,
+		);
+			path = ios;
+			sourceTree = "<group>";
+		};
+		ADCF10F76EBF2A74473E9DC4 /* group:main */ = {
+			isa = PBXGroup;
+			children = (
+			AEC055979FBB39CE216AF3FC,
+			00C45FD35CB0F9C5F764F070,
+		);
+			sourceTree = "<group>";
+		};
+		00C45FD35CB0F9C5F764F070 /* group:products */ = {
+			isa = PBXGroup;
+			children = (
+			9F358B13F44DE59E1E33F607,
+			FF78BD243877B256BF1B3408,
+		);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		7A6860A1A04070265E6C4DE6 /* group:shared */ = {
+			isa = PBXGroup;
+			children = (
+			CE030BBCBF2EC2D8AF4B40FF,
+			913AFA48D2582B803653B4CD,
+		);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		29C7B681C8D62CBAC94D51C0 /* target:app */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9EA62D25DFD1EFBA21F6DE7B;
+			buildPhases = (
+			3BE5C704148406E58FE0AB5F,
+			5B9773D84493B3D713DB9AC0,
+			B681E6ECC54B86FE775FEC3C,
+			F0AB04EE052351C80F3286E9,
+		);
+			buildRules = (
+		);
+			dependencies = (
+			7245BC36CB5F32208E1A0C35,
+		);
+			name = GameLingoAI;
+			productName = GameLingoAI;
+			productReference = 9F358B13F44DE59E1E33F607;
+			productType = "com.apple.product-type.application";
+		};
+		9831A0ED7992645038323751 /* target:ext */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3992381F9FDB76B7C18A11EF;
+			buildPhases = (
+			BA12238142A03FC991F82F4D,
+			5ED4626A2786D185F7EFB709,
+			907D881760E1A8ED04412C1D,
+		);
+			buildRules = (
+		);
+			dependencies = (
+		);
+			name = BroadcastUpload;
+			productName = BroadcastUpload;
+			productReference = FF78BD243877B256BF1B3408;
+			productType = "com.apple.product-type.app-extension";
+		};
+		B25CF16007ABAFF9D21D5A6C /* project:root */ = {
+			isa = PBXProject;
+			attributes = {
+			BuildIndependentTargetsInParallel = YES;
+			LastUpgradeCheck = "1600";
+			TargetAttributes = {
+			"29C7B681C8D62CBAC94D51C0" = {
+			CreatedOnToolsVersion = "16.0";
+			ProvisioningStyle = Automatic;
+		};
+			"9831A0ED7992645038323751" = {
+			CreatedOnToolsVersion = "16.0";
+			ProvisioningStyle = Automatic;
+		};
+		};
+		};
+			buildConfigurationList = 247BF104A9AD002C539DA531;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = zh_CN;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+			zh_CN,
+			en,
+			Base,
+		);
+			mainGroup = ADCF10F76EBF2A74473E9DC4;
+			productRefGroup = 00C45FD35CB0F9C5F764F070;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+			29C7B681C8D62CBAC94D51C0,
+			9831A0ED7992645038323751,
+		);
+		};
+		B681E6ECC54B86FE775FEC3C /* phase:resources:app */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+		);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		907D881760E1A8ED04412C1D /* phase:resources:ext */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+		);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3BE5C704148406E58FE0AB5F /* phase:sources:app */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			9B78DB7E18D71E55705A0CB6,
+			4C78A965D55C97F09ED0BAB0,
+			A8020DD27F7782D03F8921DE,
+			8D2D5FB8CC6D0C001AC44479,
+			6771AECEE47377FAE097ADA9,
+			79EFF054AB29E8B7D6D9DA85,
+		);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BA12238142A03FC991F82F4D /* phase:sources:ext */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			9465CC4952DF0509A28E969B,
+			C36CD7CBD9A2BA2EDFD34C49,
+			0D26F2C3F29530B77CD040B0,
+		);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7245BC36CB5F32208E1A0C35 /* dependency:extension */ = {
+			isa = PBXTargetDependency;
+			target = 9831A0ED7992645038323751;
+			targetProxy = 59882E9833F169D18FAA95C7;
+		};
+		3CF6A4F2E05B3AAE7E2CBFEE /* config:app:Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+			ALWAYS_SEARCH_USER_PATHS = NO;
+			CLANG_ENABLE_MODULES = YES;
+			SWIFT_VERSION = "5.9";
+			IPHONEOS_DEPLOYMENT_TARGET = "26.0";
+			SDKROOT = iphoneos;
+			CODE_SIGN_STYLE = Automatic;
+			TARGETED_DEVICE_FAMILY = "1,2";
+			SUPPORTS_MACCATALYST = NO;
+			MARKETING_VERSION = "1.3.0";
+			CURRENT_PROJECT_VERSION = "1";
+			GENERATE_INFOPLIST_FILE = NO;
+			SWIFT_EMIT_LOC_STRINGS = YES;
+			ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO;
+			PRODUCT_BUNDLE_IDENTIFIER = com.example.GameLingoAI;
+			INFOPLIST_FILE = ios/GameLingoAI/Info.plist;
+			CODE_SIGN_ENTITLEMENTS = ios/GameLingoAI/GameLingoAI.entitlements;
+			PRODUCT_NAME = GameLingoAI;
+			SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			DEBUG_INFORMATION_FORMAT = dwarf;
+		};
+			name = Debug;
+		};
+		23FB2CAEB38545C3793097DD /* config:app:Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+			ALWAYS_SEARCH_USER_PATHS = NO;
+			CLANG_ENABLE_MODULES = YES;
+			SWIFT_VERSION = "5.9";
+			IPHONEOS_DEPLOYMENT_TARGET = "26.0";
+			SDKROOT = iphoneos;
+			CODE_SIGN_STYLE = Automatic;
+			TARGETED_DEVICE_FAMILY = "1,2";
+			SUPPORTS_MACCATALYST = NO;
+			MARKETING_VERSION = "1.3.0";
+			CURRENT_PROJECT_VERSION = "1";
+			GENERATE_INFOPLIST_FILE = NO;
+			SWIFT_EMIT_LOC_STRINGS = YES;
+			ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO;
+			PRODUCT_BUNDLE_IDENTIFIER = com.example.GameLingoAI;
+			INFOPLIST_FILE = ios/GameLingoAI/Info.plist;
+			CODE_SIGN_ENTITLEMENTS = ios/GameLingoAI/GameLingoAI.entitlements;
+			PRODUCT_NAME = GameLingoAI;
+			SWIFT_OPTIMIZATION_LEVEL = "-O";
+			DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+		};
+			name = Release;
+		};
+		2AA0223F5929D1D6BFE534CF /* config:ext:Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+			ALWAYS_SEARCH_USER_PATHS = NO;
+			CLANG_ENABLE_MODULES = YES;
+			SWIFT_VERSION = "5.9";
+			IPHONEOS_DEPLOYMENT_TARGET = "26.0";
+			SDKROOT = iphoneos;
+			CODE_SIGN_STYLE = Automatic;
+			TARGETED_DEVICE_FAMILY = "1,2";
+			SUPPORTS_MACCATALYST = NO;
+			MARKETING_VERSION = "1.3.0";
+			CURRENT_PROJECT_VERSION = "1";
+			GENERATE_INFOPLIST_FILE = NO;
+			SWIFT_EMIT_LOC_STRINGS = YES;
+			ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO;
+			PRODUCT_BUNDLE_IDENTIFIER = com.example.GameLingoAI.BroadcastUpload;
+			INFOPLIST_FILE = ios/BroadcastUpload/Info.plist;
+			CODE_SIGN_ENTITLEMENTS = ios/BroadcastUpload/BroadcastUpload.entitlements;
+			PRODUCT_NAME = BroadcastUpload;
+			APPLICATION_EXTENSION_API_ONLY = YES;
+			SKIP_INSTALL = YES;
+			SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			DEBUG_INFORMATION_FORMAT = dwarf;
+		};
+			name = Debug;
+		};
+		8B2DB9053A232B59945B8323 /* config:ext:Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+			ALWAYS_SEARCH_USER_PATHS = NO;
+			CLANG_ENABLE_MODULES = YES;
+			SWIFT_VERSION = "5.9";
+			IPHONEOS_DEPLOYMENT_TARGET = "26.0";
+			SDKROOT = iphoneos;
+			CODE_SIGN_STYLE = Automatic;
+			TARGETED_DEVICE_FAMILY = "1,2";
+			SUPPORTS_MACCATALYST = NO;
+			MARKETING_VERSION = "1.3.0";
+			CURRENT_PROJECT_VERSION = "1";
+			GENERATE_INFOPLIST_FILE = NO;
+			SWIFT_EMIT_LOC_STRINGS = YES;
+			ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO;
+			PRODUCT_BUNDLE_IDENTIFIER = com.example.GameLingoAI.BroadcastUpload;
+			INFOPLIST_FILE = ios/BroadcastUpload/Info.plist;
+			CODE_SIGN_ENTITLEMENTS = ios/BroadcastUpload/BroadcastUpload.entitlements;
+			PRODUCT_NAME = BroadcastUpload;
+			APPLICATION_EXTENSION_API_ONLY = YES;
+			SKIP_INSTALL = YES;
+			SWIFT_OPTIMIZATION_LEVEL = "-O";
+			DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+		};
+			name = Release;
+		};
+		877A6BA951A2EA0025A2ABE8 /* config:project:Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+			CLANG_ENABLE_OBJC_ARC = YES;
+			ENABLE_STRICT_OBJC_MSGSEND = YES;
+			GCC_C_LANGUAGE_STANDARD = gnu17;
+			SWIFT_VERSION = "5.9";
+			CODE_SIGN_STYLE = Automatic;
+			IPHONEOS_DEPLOYMENT_TARGET = "26.0";
+			SDKROOT = iphoneos;
+		};
+			name = Debug;
+		};
+		959134B361DD7E21ADEA3164 /* config:project:Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+			CLANG_ENABLE_OBJC_ARC = YES;
+			ENABLE_STRICT_OBJC_MSGSEND = YES;
+			GCC_C_LANGUAGE_STANDARD = gnu17;
+			SWIFT_VERSION = "5.9";
+			CODE_SIGN_STYLE = Automatic;
+			IPHONEOS_DEPLOYMENT_TARGET = "26.0";
+			SDKROOT = iphoneos;
+		};
+			name = Release;
+		};
+		9EA62D25DFD1EFBA21F6DE7B /* configs:app */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+			3CF6A4F2E05B3AAE7E2CBFEE,
+			23FB2CAEB38545C3793097DD,
+		);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		3992381F9FDB76B7C18A11EF /* configs:ext */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+			2AA0223F5929D1D6BFE534CF,
+			8B2DB9053A232B59945B8323,
+		);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		247BF104A9AD002C539DA531 /* configs:project */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+			877A6BA951A2EA0025A2ABE8,
+			959134B361DD7E21ADEA3164,
+		);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+	};
+	rootObject = B25CF16007ABAFF9D21D5A6C /* Project object */;
+}

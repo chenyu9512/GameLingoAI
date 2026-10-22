@@ -1,0 +1,39 @@
+workflows:
+  ios-offline-unsigned:
+    name: GameLingo Offline iPhone - unsigned IPA for Windows sideload
+    instance_type: mac_mini_m2
+    max_build_duration: 40
+    environment:
+      xcode: latest
+    scripts:
+      - name: Prepare build identity and project
+        script: |
+          set -e
+          python3 tools/prepare_build.py
+          python3 tools/build_xcodeproj.py
+      - name: Compile iOS app and ReplayKit extension (no code signing)
+        script: |
+          set -e
+          xcodebuild \
+            -project "$CM_BUILD_DIR/GameLingoAI.xcodeproj" \
+            -scheme GameLingoAI \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$CM_BUILD_DIR/Build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+      - name: Export unsigned IPA
+        script: |
+          set -e
+          mkdir -p "$CM_BUILD_DIR/artifacts/Payload"
+          cp -R "$CM_BUILD_DIR/Build/Build/Products/Release-iphoneos/GameLingoAI.app" \
+            "$CM_BUILD_DIR/artifacts/Payload/GameLingoAI.app"
+          cd "$CM_BUILD_DIR/artifacts"
+          /usr/bin/zip -qr GameLingoAI-Offline-unsigned.ipa Payload
+          rm -rf Payload
+    artifacts:
+      - artifacts/GameLingoAI-Offline-unsigned.ipa
+      - Build/Logs/Build/*.xcactivitylog
