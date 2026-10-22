@@ -20,6 +20,7 @@ struct DirectHomeView: View {
     @State private var screenshotResult = ""
     @State private var screenshotStatus = ""
     @State private var screenshotTranslation: TranslationSession.Configuration?
+    @State private var subtitleScale = (UserDefaults.standard.object(forKey: "pip.subtitle.scale") as? Double) ?? 1.0
 
     private let mint = Color(red: 0.24, green: 0.92, blue: 0.78)
     private let navy = Color(red: 0.035, green: 0.064, blue: 0.12)
@@ -50,6 +51,11 @@ struct DirectHomeView: View {
         .preferredColorScheme(.dark)
         .onAppear {
             capture.configure(language: sourceLanguage, scanArea: scanArea)
+            overlay.setFontScale(CGFloat(subtitleScale))
+        }
+        .onChange(of: subtitleScale) { _, newValue in
+            UserDefaults.standard.set(newValue, forKey: "pip.subtitle.scale")
+            overlay.setFontScale(CGFloat(newValue))
         }
         .onChange(of: sourceLanguage) { _, next in
             UserDefaults.standard.set(next, forKey: "direct.sourceLanguage")
@@ -160,6 +166,21 @@ struct DirectHomeView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             Text("预览应正向显示。先开启画中画，再切换到游戏。")
                 .font(.caption2).foregroundStyle(.white.opacity(0.72))
+            HStack(spacing: 10) {
+                Text("字号").font(.caption).foregroundStyle(.white.opacity(0.82))
+                Slider(value: $subtitleScale, in: 0.8...1.4, step: 0.1)
+                    .tint(mint)
+                Text("\(Int(subtitleScale * 100))%")
+                    .font(.caption.monospacedDigit())
+                    .frame(width: 44, alignment: .trailing)
+                    .foregroundStyle(mint)
+            }
+            Button {
+                overlay.setText("小窗测试：中文字幕居中显示，字号可调")
+            } label: {
+                Label("显示小窗测试字幕", systemImage: "textformat.size")
+            }
+            .buttonStyle(.bordered)
             Button {
                 if overlay.isActive { overlay.stop() }
                 else { overlay.start() }
