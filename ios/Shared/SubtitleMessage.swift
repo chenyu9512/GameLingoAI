@@ -16,7 +16,13 @@ struct SubtitleMessage: Codable, Equatable {
 enum SharedSubtitles {
     static let groupID = "group.com.gamelingoai.offline"
     static let key = "liveSubtitle_v1"
-    static let signal = CFNotificationName(rawValue: "com.gamelingoai.offline.subtitle.changed")
+    // Darwin CFNotificationName requires CFString, not a Swift String.
+    // Construct it explicitly rather than relying on an unavailable bridge.
+    static let signal = CFNotificationName(rawValue: CFStringCreateWithCString(
+        kCFAllocatorDefault,
+        "com.gamelingoai.offline.subtitle.changed",
+        CFStringBuiltInEncodings.UTF8.rawValue
+    ))
 
     static func glossary() -> [String: String] {
         guard let content = UserDefaults(suiteName: groupID)?.string(forKey: "glossaryText") else { return [:] }
