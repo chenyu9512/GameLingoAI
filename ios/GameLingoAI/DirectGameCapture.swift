@@ -100,8 +100,8 @@ final class DirectGameCapture: NSObject, ObservableObject, SCContentSharingPicke
     private func launch(_ filter: SCContentFilter) {
         stop()
         let config = SCStreamConfiguration()
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 2)
-        config.queueDepth = 3
+        // iOS ScreenCaptureKit manages frame pacing and buffering internally.
+        // minimumFrameInterval and queueDepth are macOS-only API properties.
         config.capturesAudio = false
         let newStream = SCStream(filter: filter, configuration: config, delegate: self)
         do {
