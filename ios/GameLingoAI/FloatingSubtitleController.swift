@@ -19,8 +19,14 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     private var pictureInPicture: AVPictureInPictureController?
     private var frameTimer: Timer?
     private var currentText = "字幕预览  ↑  ABC 123"
+    private var pages = ["字幕预览  ↑  ABC 123"]
+    private var pageIndex = 0
+    private var pageChangedAt = CACurrentMediaTime()
+    private var fontScale: CGFloat = 1
     private var lastFrameTime: Double = 0
     private let ciContext = CIContext(options: [.cacheIntermediates: false])
+    // This is the actual encoded video size. UIKit MUST render at scale 1.
+    private let frameSize = CGSize(width: 640, height: 360)
 
     override init() {
         super.init()
@@ -54,8 +60,21 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     }
 
     func setText(_ text: String) {
-        currentText = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "等待游戏字幕…" : text
+        let updated = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "等待游戏字幕…" : text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard updated != currentText else { return }
+        currentText = updated
+        pages = makePages(for: updated)
+        pageIndex = 0
+        pageChangedAt = CACurrentMediaTime()
+        renderFrame()
+    }
+
+    func setFontScale(_ scale: CGFloat) {
+        fontScale = min(1.45, max(0.75, scale))
+        pages = makePages(for: currentText)
+        pageIndex = 0
+        pageChangedAt = CACurrentMediaTime()
         renderFrame()
     }
 
@@ -97,9 +116,51 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     private func beginFrameTimer() {
         frameTimer?.invalidate()
         // Feed current subtitle frames so PiP remains visibly up to date.
-        frameTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.renderFrame()
+        frameTimer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            if self.pages.count > 1 && CACurrentMediaTime() - self.pageChangedAt >= 3.2 {
+                self.pageIndex = (self.pageIndex + 1) % self.pages.count
+                self.pageChangedAt = CACurrentMediaTime()
+            }
+            self.renderFrame()
         }
+        frameTimer?.tolerance = 0.12
+    }
+
+    // Paginate long translated dialogue instead of drawing it below the
+    // bottom edge of a tiny system PiP window.
+    private func makePages(for text: String) -> [String] {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byWordWrapping
+        paragraph.lineSpacing = 8
+        let font = UIFont.systemFont(ofSize: 44 * fontScale, weight: .bold)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .paragraphStyle: paragraph
+        ]
+        var result: [String] = []
+        var page = ""
+        for character in text.prefix(480) {
+            let next = page + String(character)
+            let bounds = (next as NSString).boundingRect(
+                with: CGSize(width: frameSize.width - 42,
+                             height: CGFloat.greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: attributes,
+                context: nil)
+            if bounds.height > frameSize.height - 43 && !page.isEmpty {
+                result.append(page.trimmingCharacters(in: .whitespacesAndNewlines))
+                page = String(character)
+            } else {
+                page = next
+            }
+        }
+        if !page.isEmpty {
+            result.append(page.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return result.filter { !$0.isEmpty }.isEmpty
+            ? ["等待游戏字幕…"] : result.filter { !$0.isEmpty }
     }
 
     private func renderFrame() {
@@ -107,34 +168,77 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
             DispatchQueue.main.async { [weak self] in self?.renderFrame() }
             return
         }
-        let size = CGSize(width: 640, height: 360)
-        let text = currentText
-        let renderer = UIGraphicsImageRenderer(size: size)
-        let image = renderer.image { context in
-            let rectangle = CGRect(origin: .zero, size: size)
-            UIColor(red: 0.055, green: 0.075, blue: 0.13, alpha: 1).setFill()
-            context.cgContext.fill(rectangle)
-            UIColor(red: 0.30, green: 0.93, blue: 0.81, alpha: 1).setFill()
-            context.cgContext.fill(CGRect(x: 0, y: 0, width: size.width, height: 7))
-            let header = "GameLingo AI  ·  实时翻译"
-            header.draw(in: CGRect(x: 25, y: 19, width: 590, height: 30),
-                        withAttributes: [
-                            .font: UIFont.systemFont(ofSize: 18, weight: .semibold),
-                            .foregroundColor: UIColor(red: 0.30, green: 0.93, blue: 0.81, alpha: 1)
-                        ])
+        // UIGraphicsImageRenderer uses the screen's Retina scale by default.
+        // That creates 1280x720 / 1920x1080 pixels for a 640x360 canvas,
+        // which was clipped when copied into a 640x360 PiP pixel buffer.
+        let size = frameSize
+        let rendererFormat = UIGraphicsImageRendererFormat()
+        rendererFormat.scale = 1.0
+        rendererFormat.opaque = true
+
+        let image = UIGraphicsImageRenderer(size: size, format: rendererFormat).image { context in
+            let cg = context.cgContext
+            UIColor(red: 0.035, green: 0.055, blue: 0.09, alpha: 1).setFill()
+            cg.fill(CGRect(origin: .zero, size: size))
+
+            // The floating window is tiny. Do not waste 20% of its height
+            // on the logo/header; give the full central region to captions.
+            UIColor(red: 0.24, green: 0.92, blue: 0.78, alpha: 1).setFill()
+            cg.fill(CGRect(x: 0, y: 0, width: size.width, height: 5))
+
+            let displayText = pages.indices.contains(pageIndex)
+                ? pages[pageIndex] : currentText
+            let area = CGRect(x: 21, y: 15, width: size.width - 42, height: size.height - 30)
             let paragraph = NSMutableParagraphStyle()
-            paragraph.lineSpacing = 7
             paragraph.alignment = .center
+            paragraph.lineBreakMode = .byWordWrapping
+            paragraph.lineSpacing = 8
+
+            var chosenFont = UIFont.systemFont(ofSize: 44 * fontScale, weight: .bold)
+            var lineHeight: CGFloat = 0
+            for pointSize in stride(from: 72.0 * Double(fontScale),
+                                    through: 44.0 * Double(fontScale), by: -2) {
+                let candidate = UIFont.systemFont(ofSize: CGFloat(pointSize), weight: .bold)
+                let measure = (displayText as NSString).boundingRect(
+                    with: CGSize(width: area.width, height: CGFloat.greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    attributes: [.font: candidate, .paragraphStyle: paragraph],
+                    context: nil)
+                chosenFont = candidate
+                lineHeight = ceil(measure.height)
+                if lineHeight <= area.height - 9 { break }
+            }
             let attributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 34, weight: .semibold),
+                .font: chosenFont,
                 .foregroundColor: UIColor.white,
                 .paragraphStyle: paragraph
             ]
-            let attributed = NSAttributedString(string: text, attributes: attributes)
-            let textBounds = CGRect(x: 25, y: 65, width: 590, height: 267)
-            attributed.draw(with: textBounds, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], context: nil)
+            let boundedHeight = min(lineHeight, area.height)
+            let centered = CGRect(x: area.minX,
+                                  y: area.midY - boundedHeight / 2,
+                                  width: area.width,
+                                  height: boundedHeight + 2)
+            (displayText as NSString).draw(with: centered,
+                                           options: [.usesLineFragmentOrigin, .usesFontLeading],
+                                           attributes: attributes,
+                                           context: nil)
+
+            // Nonverbal progress indicator for subtitles that require pages.
+            if pages.count > 1 {
+                let progressWidth = size.width / CGFloat(pages.count)
+                UIColor(red: 0.24, green: 0.92, blue: 0.78, alpha: 0.85).setFill()
+                cg.fill(CGRect(x: CGFloat(pageIndex) * progressWidth,
+                               y: size.height - 5,
+                               width: progressWidth,
+                               height: 5))
+            }
         }
-        guard let cgImage = image.cgImage else { return }
+        guard let cgImage = image.cgImage,
+              cgImage.width == Int(size.width),
+              cgImage.height == Int(size.height) else {
+            status = "字幕视频帧尺寸错误"
+            return
+        }
 
         var pixelBuffer: CVPixelBuffer?
         let properties: [CFString: Any] = [
@@ -150,7 +254,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         // CoreGraphics axis transform. The old CGContext flip inverted PiP text.
         let sourceImage = CIImage(cgImage: cgImage)
         ciContext.render(sourceImage, to: buffer,
-                         bounds: sourceImage.extent,
+                         bounds: CGRect(origin: .zero, size: size),
                          colorSpace: CGColorSpaceCreateDeviceRGB())
 
         var formatDescription: CMVideoFormatDescription?
