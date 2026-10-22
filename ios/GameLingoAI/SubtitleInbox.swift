@@ -15,6 +15,7 @@ private func refreshOnDarwinSignal(_ center: CFNotificationCenter?,
 final class SubtitleInbox: ObservableObject {
     @Published private(set) var current: SubtitleMessage = .empty
     @Published private(set) var history: [SubtitleMessage] = []
+    @Published private(set) var telemetry = BroadcastTelemetry()
     private var timer: Timer?
 
     init() {
@@ -36,10 +37,14 @@ final class SubtitleInbox: ObservableObject {
     }
 
     func refresh() {
+        let data = SharedSubtitles.loadTelemetry()
+        if data != telemetry { telemetry = data }
         guard let message = SharedSubtitles.load() else { return }
         guard message.updatedAt > current.updatedAt else { return }
         current = message
-        history.insert(message, at: 0)
-        if history.count > 30 { history.removeLast() }
+        if !message.original.isEmpty && !message.translated.isEmpty {
+            history.insert(message, at: 0)
+        }
+        if history.count > 100 { history.removeLast(history.count - 100) }
     }
 }
