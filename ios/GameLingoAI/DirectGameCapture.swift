@@ -7,7 +7,7 @@ import CoreMedia
 import CoreVideo
 import ImageIO
 
-// iOS 27 direct screen capture. No ReplayKit extension and no App Groups IPC.
+// iOS 27 direct screen capture: no extension and no cross-process IPC.
 // The user must grant capture permission using the system screen-sharing picker.
 @available(iOS 27.0, *)
 final class DirectGameCapture: NSObject, ObservableObject, SCContentSharingPickerObserver, SCStreamOutput, SCStreamDelegate {
@@ -231,7 +231,7 @@ final class DirectGameCapture: NSObject, ObservableObject, SCContentSharingPicke
             latest = result
             translatedCount += 1
             phase = "翻译已更新"
-            details = "无需 App Groups，无服务器"
+            details = "无需扩展，设备内完成"
         } catch {
             phase = "本地翻译失败"
             details = error.localizedDescription
@@ -257,7 +257,7 @@ struct DirectCapturePanel: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 9) {
                 Image(systemName: capture.isCapturing ? "record.circle.fill" : "display")
-                Text("iOS 27 直接采集 · 无需 App Groups")
+                Text("iOS 27 单进程屏幕采集")
                     .font(.system(size: 12, weight: .semibold))
             }.foregroundStyle(.mint)
             Text(capture.phase).font(.headline)
