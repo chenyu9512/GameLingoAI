@@ -119,6 +119,35 @@ workflows:
             echo "For support: download artifacts/compiler-errors-direct.txt"
             exit 65
           fi
+      - name: Verify app has no shared-container entitlement or app extension
+        script: |
+          set -e
+          APP="$CM_BUILD_DIR/Build/Build/Products/Release-iphoneos/GameLingoAI.app"
+          REPORT="$CM_BUILD_DIR/artifacts/direct-package-audit.txt"
+          test -d "$APP" || { echo "App bundle was not built"; exit 1; }
+          {
+            echo "Bundle identifier:"
+            /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
+            echo "Display name:"
+            /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP/Info.plist"
+            echo "Embedded extensions:"
+            find "$APP" -type d -name '*.appex' -print
+          } > "$REPORT"
+          if find "$APP" -type d -name '*.appex' | grep -q .; then
+            echo "FAIL: direct IPA unexpectedly includes app extensions"
+            cat "$REPORT"
+            exit 1
+          fi
+          if /usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups' "$APP/Info.plist" >/dev/null 2>&1; then
+            echo "FAIL: shared app group requested by app Info.plist"
+            exit 1
+          fi
+          grep -q 'com.example.GameLingoAI.direct' "$REPORT" || {
+            echo "FAIL: wrong bundle ID; SideStore could be reinstalling legacy app"
+            cat "$REPORT"
+            exit 1
+          }
+          echo "PASS: no broadcast extension, distinct app identity" | tee -a "$REPORT"
       - name: Package unsigned IPA for SideStore
         script: |
           set -e
@@ -129,5 +158,6 @@ workflows:
           rm -rf Payload
     artifacts:
       - artifacts/GameLingoAI-Direct-iOS27-unsigned.ipa
+      - artifacts/direct-package-audit.txt
       - artifacts/compiler-errors-direct.txt
       - artifacts/xcodebuild-direct.log
