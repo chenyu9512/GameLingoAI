@@ -327,8 +327,10 @@ final class DirectGameCapture: NSObject, ObservableObject,
                     item -> (String, CGFloat, CGFloat, Float)? in
                     guard let candidate = item.topCandidates(1).first,
                           candidate.confidence >= 0.34,
-                          !snapshot.excluded.map({ $0.contains(
-                              CGPoint(x: item.boundingBox.midX, y: item.boundingBox.midY)) })! else {
+                          !(snapshot.excluded.map { excluded in
+                              excluded.contains(CGPoint(x: item.boundingBox.midX,
+                                                        y: item.boundingBox.midY))
+                          } ?? false) else {
                         return nil
                     }
                     let content = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
