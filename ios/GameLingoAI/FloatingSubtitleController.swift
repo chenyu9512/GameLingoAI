@@ -2,6 +2,7 @@ import AVFoundation
 import AVKit
 import CoreMedia
 import CoreVideo
+import QuartzCore
 import SwiftUI
 import UIKit
 
@@ -231,8 +232,8 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
 
     func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController,
                                     skipByInterval skipInterval: CMTime,
-                                    completionHandler: @escaping () -> Void) {
-        completionHandler()
+                                    completion: @escaping () -> Void) {
+        completion()
     }
 
     func pictureInPictureControllerShouldProhibitBackgroundAudioPlayback(_ pictureInPictureController: AVPictureInPictureController) -> Bool {
