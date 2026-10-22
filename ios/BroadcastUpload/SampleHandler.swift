@@ -7,161 +7,193 @@ import CoreMedia
 import Foundation
 
 final class SampleHandler: RPBroadcastSampleHandler {
-    private let pipeline = GameLingoPipeline()
+    private let pipeline = OfflineOCRPipeline()
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
         guard SharedSubtitles.isGroupAvailable else {
-            finishBroadcastWithError(NSError(domain: "GameLingoAI", code: 1001,
-                userInfo: [NSLocalizedDescriptionKey: "缺少 App Groups 授权；侧载签名无法共享字幕"]))
+            let issue = NSError(domain: "GameLingo", code: 1001,
+                                userInfo: [NSLocalizedDescriptionKey:
+                                    "缺少 App Groups 授权。此侧载签名无法连接字幕，请重新签名主 App 和扩展。"])
+            finishBroadcastWithError(issue)
             return
         }
-        pipeline.resume()
-        SharedSubtitles.save(SubtitleMessage(original: "", translated: "正在接收游戏画面…",
-                                              status: "广播已启动", updatedAt: Date().timeIntervalSince1970))
+        pipeline.start()
+        SharedSubtitles.save(.init(original: "", translated: "正在捕获游戏画面…",
+                                   status: "广播已连接", updatedAt: Date().timeIntervalSince1970))
     }
     override func broadcastPaused() { pipeline.pause() }
-    override func broadcastResumed() { pipeline.resume() }
-    override func broadcastFinished() { pipeline.pause() }
+    override func broadcastResumed() { pipeline.start() }
+    override func broadcastFinished() { pipeline.stop() }
 
     override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer,
                                       with sampleBufferType: RPSampleBufferType) {
         guard sampleBufferType == .video,
-              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        let value = CMGetAttachment(sampleBuffer, key: RPVideoSampleOrientationKey as CFString,
-                                    attachmentModeOut: nil) as? NSNumber
-        let orientation = value.flatMap { CGImagePropertyOrientation(rawValue: $0.uint32Value) } ?? .up
-        pipeline.process(pixelBuffer, orientation: orientation)
+              let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        let orientationValue = CMGetAttachment(sampleBuffer,
+                                               key: RPVideoSampleOrientationKey as CFString,
+                                               attachmentModeOut: nil) as? NSNumber
+        let orientation = orientationValue.flatMap { CGImagePropertyOrientation(rawValue: $0.uint32Value) } ?? .up
+        pipeline.accept(buffer, orientation: orientation)
     }
 }
 
-private final class GameLingoPipeline {
-    private let scanQueue = DispatchQueue(label: "com.gamelingoai.ocr", qos: .userInitiated)
-    private let lock = NSLock()
-    private var active = false
-    private var busy = false
-    private var lastScan = 0.0
-    private var lastDelivered = ""
-    private var candidate = ""
-    private var stableFrames = 0
-    private var cached: [String: String] = [:]
-    private var diagnostics = BroadcastTelemetry()
+/// OCR only processes selected frames. Translations remain wholly on the phone.
+/// Work is serialized: no stale translation can overwrite a newer dialogue line.
+private struct OCRFailure: Error { let message: String }
 
-    func resume() {
+private final class OfflineOCRPipeline {
+    private let queue = DispatchQueue(label: "GameLingo.OfflineOCR", qos: .userInitiated)
+    private let lock = NSLock()
+    private var lastFrameTime = 0.0
+    private var processing = false
+    private var active = false
+    private var candidate = ""
+    private var stable = 0
+    private var lastDelivered = ""
+    private var lastFailureAt = 0.0
+    private var cache: [String: String] = [:]
+    private var metrics = BroadcastTelemetry()
+
+    func start() {
         lock.lock(); active = true; lock.unlock()
-        report("识别已启动", "等待游戏画面中的文字")
+        report("正在接收画面", "正在等待游戏中的文字")
     }
     func pause() {
         lock.lock(); active = false; lock.unlock()
-        report("已停止", "屏幕广播已结束或暂停")
+        report("已暂停", "系统暂停了屏幕共享")
     }
+    func stop() { pause(); report("已停止", "屏幕共享已结束") }
 
-    func process(_ pixelBuffer: CVPixelBuffer, orientation: CGImagePropertyOrientation) {
+    func accept(_ buffer: CVPixelBuffer, orientation: CGImagePropertyOrientation) {
         lock.lock()
-        diagnostics.frames += 1
+        metrics.frames += 1
         let now = Date().timeIntervalSince1970
-        guard active && !busy && now - lastScan > 0.55 else {
-            lock.unlock()
-            return
+        guard active && !processing && now - lastFrameTime > 0.55 else {
+            lock.unlock(); return
         }
-        busy = true
-        lastScan = now
+        processing = true
+        lastFrameTime = now
         lock.unlock()
-        scanQueue.async { [weak self, pixelBuffer] in
+
+        queue.async { [weak self, buffer] in
             guard let self else { return }
-            self.lock.lock(); self.diagnostics.scans += 1; self.lock.unlock()
-            let request = VNRecognizeTextRequest()
-            request.recognitionLevel = .accurate
-            request.automaticallyDetectsLanguage = false
-            request.recognitionLanguages = [
-                ["ja":"ja-JP","en":"en-US","ko":"ko-KR"][SharedSubtitles.sourceLanguage] ?? "ja-JP"
-            ]
-            request.usesLanguageCorrection = true
-            request.minimumTextHeight = 0.012
-            if SharedSubtitles.scanArea == "bottom" {
-                request.regionOfInterest = CGRect(x: 0.03, y: 0.03, width: 0.94, height: 0.62)
-            }
-            do {
-                try VNImageRequestHandler(cvPixelBuffer: pixelBuffer,
-                                          orientation: orientation, options: [:]).perform([request])
-            } catch {
-                self.failed("文字识别失败", error.localizedDescription)
-                self.release()
-                return
-            }
-            let blocks: [(String,CGFloat,CGFloat)] = (request.results ?? []).compactMap { item in
-                guard let best = item.topCandidates(1).first, best.confidence >= 0.32 else { return nil }
-                let str = best.string.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !str.isEmpty else { return nil }
-                return (str,item.boundingBox.midY,item.boundingBox.minX)
-            }
-            let text = blocks.sorted { a,b in
-                abs(a.1-b.1) <= 0.025 ? a.2 < b.2 : a.1 > b.1
-            }.prefix(9).map { $0.0 }.joined(separator: "\n")
-            guard !text.isEmpty else {
-                self.report("扫描正常", "未发现文字；可以切换扫描范围")
-                self.release()
-                return
-            }
-            self.lock.lock(); self.diagnostics.hits += 1; self.lock.unlock()
-            if text == self.candidate { self.stableFrames += 1 }
-            else { self.candidate = text; self.stableFrames = 1 }
-            guard self.stableFrames >= 2, text != self.lastDelivered else {
-                self.report("扫描正常", "正在等待文字变化")
-                self.release()
-                return
-            }
-            if let ready = SharedSubtitles.glossary()[text] ?? self.cached[text] {
-                self.success(text, ready, "术语 / 缓存")
-                self.release()
-                return
-            }
-            self.report("正在翻译", "检测到 \(text.count) 字符")
-            Task {
-                defer { self.release() }
-                do {
-                    let engine = TranslationSession(
-                        installedSource: Locale.Language(identifier: SharedSubtitles.sourceLanguage),
-                        target: Locale.Language(identifier: "zh-Hans"))
-                    let response = try await engine.translate(text)
-                    let translated = response.targetText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !translated.isEmpty else {
-                        self.failed("翻译为空", "系统没有返回中文")
-                        return
+            self.lock.lock()
+            self.metrics.scans += 1
+            self.lock.unlock()
+            let result = self.ocr(buffer, orientation: orientation)
+            switch result {
+            case .failure(let issue):
+                self.failure("OCR 识别失败", issue.message)
+                self.finish()
+            case .success(let original):
+                guard !original.isEmpty else {
+                    self.report("识别中", "已接收到画面，但尚未发现文字。可在设置中切换扫描范围。")
+                    self.finish()
+                    return
+                }
+                self.lock.lock(); self.metrics.hits += 1; self.lock.unlock()
+                if original == self.candidate { self.stable += 1 }
+                else { self.candidate = original; self.stable = 1 }
+                guard self.stable >= 2 else {
+                    self.report("稳定画面", "检测到游戏文字，正在确认画面")
+                    self.finish()
+                    return
+                }
+                guard original != self.lastDelivered else {
+                    self.report("正常运行", "文字没有变化，不重复翻译")
+                    self.finish()
+                    return
+                }
+                if let translated = SharedSubtitles.glossary()[original] ?? self.cache[original] {
+                    self.complete(original: original, translated: translated, status: "术语 / 缓存")
+                    self.finish()
+                    return
+                }
+                self.report("翻译中", "已提取 \(original.count) 个字符")
+                let language = SharedSubtitles.sourceLanguage
+                Task {
+                    defer { self.finish() }
+                    do {
+                        let session = TranslationSession(
+                            installedSource: Locale.Language(identifier: language),
+                            target: Locale.Language(identifier: "zh-Hans")
+                        )
+                        let response = try await session.translate(original)
+                        let translation = response.targetText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !translation.isEmpty else {
+                            self.failure("翻译结果为空", "系统翻译引擎没有返回文字")
+                            return
+                        }
+                        self.complete(original: original, translated: translation, status: "本机翻译")
+                    } catch {
+                        self.failure("翻译失败", error.localizedDescription)
                     }
-                    self.success(text, translated, "设备内翻译")
-                } catch {
-                    // A failed translation must be retried; never change lastDelivered here.
-                    self.failed("翻译失败", error.localizedDescription)
                 }
             }
         }
     }
 
-    private func success(_ original: String, _ translation: String, _ status: String) {
+    private func complete(original: String, translated: String, status: String) {
         lastDelivered = original
-        cached[original] = translation
-        if cached.count > 150 { cached.removeAll(keepingCapacity: true) }
-        lock.lock(); diagnostics.translated += 1; lock.unlock()
-        SharedSubtitles.save(SubtitleMessage(original: original, translated: translation,
-                                              status: status, updatedAt: Date().timeIntervalSince1970))
-        report("正在运行", "字幕已更新")
+        cache[original] = translated
+        if cache.count > 160 { cache.removeAll(keepingCapacity: true) }
+        lock.lock(); metrics.translated += 1; lock.unlock()
+        SharedSubtitles.save(.init(original: original, translated: translated,
+                                   status: status, updatedAt: Date().timeIntervalSince1970))
+        report("正常运行", "字幕已更新")
     }
-    private func failed(_ phase: String, _ message: String) {
-        lock.lock(); diagnostics.failures += 1; lock.unlock()
-        report(phase, message)
-        SharedSubtitles.save(SubtitleMessage(original: candidate, translated: "翻译暂不可用：\(message)",
-                                              status: phase, updatedAt: Date().timeIntervalSince1970))
-    }
-    private func release() {
-        lock.lock(); busy = false; lock.unlock()
+    private func failure(_ status: String, _ detail: String) {
+        let now = Date().timeIntervalSince1970
+        lock.lock(); metrics.failures += 1; lock.unlock()
+        report(status, detail)
+        // Do not mark the OCR line as delivered after failure; retry it later.
+        if now - lastFailureAt > 5 {
+            SharedSubtitles.save(.init(original: candidate,
+                                       translated: "翻译暂不可用：\(detail)",
+                                       status: status, updatedAt: now))
+            lastFailureAt = now
+        }
     }
     private func report(_ phase: String, _ detail: String) {
         lock.lock()
-        diagnostics.phase = phase
-        diagnostics.detail = detail
-        diagnostics.updatedAt = Date().timeIntervalSince1970
-        let snapshot = diagnostics
+        metrics.phase = phase
+        metrics.detail = detail
+        metrics.updatedAt = Date().timeIntervalSince1970
+        let copy = metrics
         lock.unlock()
-        SharedSubtitles.saveTelemetry(snapshot)
+        SharedSubtitles.saveTelemetry(copy)
+    }
+    private func finish() { lock.lock(); processing = false; lock.unlock() }
+
+    private func ocr(_ buffer: CVPixelBuffer,
+                     orientation: CGImagePropertyOrientation) -> Result<String, OCRFailure> {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        request.automaticallyDetectsLanguage = false
+        request.recognitionLanguages = [
+            ["ja": "ja-JP", "en": "en-US", "ko": "ko-KR"][SharedSubtitles.sourceLanguage] ?? "ja-JP"
+        ]
+        request.minimumTextHeight = 0.012
+        if SharedSubtitles.scanArea == "bottom" {
+            // Vision uses lower-left normalized coordinates; reserve top UI/header area.
+            request.regionOfInterest = CGRect(x: 0.03, y: 0.03, width: 0.94, height: 0.62)
+        }
+        do {
+            try VNImageRequestHandler(cvPixelBuffer: buffer,
+                                      orientation: orientation, options: [:]).perform([request])
+        } catch { return .failure(OCRFailure(message: error.localizedDescription)) }
+        let candidates: [(String, CGFloat, CGFloat)] = (request.results ?? []).compactMap { item in
+            guard let best = item.topCandidates(1).first, best.confidence >= 0.32 else { return nil }
+            let value = best.string.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { return nil }
+            return (value, item.boundingBox.midY, item.boundingBox.minX)
+        }
+        let ordered = candidates.sorted { first, second in
+            abs(first.1 - second.1) <= 0.025 ? first.2 < second.2 : first.1 > second.1
+        }
+        // Upper bound keeps translation latency and widget size manageable.
+        let text = ordered.prefix(9).map(\.0).joined(separator: "\n")
+        return .success(text)
     }
 }

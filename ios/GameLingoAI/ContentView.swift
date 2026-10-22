@@ -5,271 +5,430 @@ import Vision
 import Translation
 import UIKit
 
+private enum GLStyle {
+    static let mint = Color(red: 0.21, green: 0.93, blue: 0.78)
+    static let blue = Color(red: 0.27, green: 0.57, blue: 1.0)
+    static let text = Color(red: 0.91, green: 0.96, blue: 1)
+    static let muted = Color(red: 0.58, green: 0.68, blue: 0.76)
+    static let panel = Color(red: 0.075, green: 0.115, blue: 0.19)
+}
+
 struct ContentView: View {
     @StateObject private var inbox = SubtitleInbox()
-    @StateObject private var subtitleWindow = FloatingSubtitleController()
+    @StateObject private var overlay = FloatingSubtitleController()
+    @State private var selectedTab = 0
+    @State private var language = SharedSubtitles.sourceLanguage
+    @State private var scanArea = SharedSubtitles.scanArea
     @State private var preparation: TranslationSession.Configuration?
-    @State private var source: String = SharedSubtitles.sourceLanguage
-    @State private var scanArea: String = SharedSubtitles.scanArea
-    @State private var preparationMessage = "未安装语言包时，点击准备按钮让系统请求下载。"
-    @State private var capturedImage: PhotosPickerItem?
-    @State private var scannedText = ""
-    @State private var photoStatus = ""
-    @State private var photoTranslationConfiguration: TranslationSession.Configuration?
-    @State private var photoTranslation = ""
-    @State private var glossaryText = ""
-    @State private var showGlossary = false
+    @State private var preparationStatus = "未准备语言包"
+    @State private var screenshot: PhotosPickerItem?
+    @State private var screenshotOriginal = ""
+    @State private var screenshotResult = ""
+    @State private var screenshotStatus = ""
+    @State private var screenshotTranslation: TranslationSession.Configuration?
+    @State private var glossary = SharedSubtitles.glossaryText()
+    @State private var showUsage = false
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    title
-                    GroupBox {
-                        HStack(spacing: 10) {
-                            Image(systemName: SharedSubtitles.isGroupAvailable ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")
-                                .foregroundStyle(SharedSubtitles.isGroupAvailable ? .mint : .orange)
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(SharedSubtitles.isGroupAvailable ? "设备端私密翻译" : "字幕共享权限不可用")
-                                    .font(.headline)
-                                Text(SharedSubtitles.isGroupAvailable
-                                     ? "不使用 API、账号或翻译服务器"
-                                     : "当前签名没有 App Groups 权限，实时画中画字幕无法传递。")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer(minLength: 0)
-                        }
+        ZStack {
+            LinearGradient(colors: [Color(red: 0.035, green: 0.058, blue: 0.11),
+                                    Color(red: 0.055, green: 0.10, blue: 0.16),
+                                    Color(red: 0.025, green: 0.045, blue: 0.09)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                .ignoresSafeArea()
+            Circle().fill(GLStyle.blue.opacity(0.16)).blur(radius: 90)
+                .frame(width: 260, height: 260).offset(x: 160, y: -320)
+            VStack(spacing: 0) {
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        header
+                        if selectedTab == 0 { dashboard }
+                        else if selectedTab == 1 { archive }
+                        else { preferences }
                     }
-                    GroupBox("一、准备手机本地语言包") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Picker("游戏语言", selection: $source) {
-                                Text("日语 → 简体中文").tag("ja")
-                                Text("英语 → 简体中文").tag("en")
-                                Text("韩语 → 简体中文").tag("ko")
-                            }.pickerStyle(.menu)
-                            Button("准备 / 下载本地翻译语言") {
-                                preparation = TranslationSession.Configuration(
-                                    source: Locale.Language(identifier: source),
-                                    target: Locale.Language(identifier: "zh-Hans"))
-                            }.buttonStyle(.borderedProminent)
-                            Text(preparationMessage).font(.caption).foregroundStyle(.secondary)
-                            Text("首次准备需要网络下载系统语言模型；之后翻译计算在 iPhone 上完成。")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    GroupBox("二、系统广播识别游戏") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("先启动画中画小窗（实验功能），再点击系统广播按钮；选择 GameLingo Broadcast，切回游戏。")
-                                .font(.subheadline)
-                            FloatingSubtitlePreview(controller: subtitleWindow)
-                                .frame(height: 158)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                            Button(subtitleWindow.isActive ? "关闭翻译小窗" : "开启同屏字幕小窗") {
-                                if subtitleWindow.isActive { subtitleWindow.stop() }
-                                else { subtitleWindow.start() }
-                            }.buttonStyle(.borderedProminent)
-                            Text(subtitleWindow.status).font(.caption).foregroundStyle(.secondary)
-                            HStack {
-                                BroadcastPicker().frame(width: 60, height: 60)
-                                VStack(alignment: .leading) {
-                                    Text("点击左侧系统录屏按钮")
-                                    Text("授权游戏画面采集，不需要其他设备")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    GroupBox("三、实时识别状态") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack(spacing: 8) {
-                                metric(inbox.telemetry.frames, "采集帧")
-                                metric(inbox.telemetry.scans, "OCR 扫描")
-                                metric(inbox.telemetry.translated, "翻译成功")
-                            }
-                            Label(inbox.telemetry.phase, systemImage: "waveform.path.ecg")
-                                .foregroundStyle(.mint).font(.subheadline.bold())
-                            Text(inbox.telemetry.detail.isEmpty
-                                 ? "开启录屏后，将显示真实识别和翻译状态。"
-                                 : inbox.telemetry.detail)
-                                .font(.caption).foregroundStyle(.secondary)
-                            if inbox.telemetry.failures > 0 {
-                                Text("翻译错误次数：\(inbox.telemetry.failures)")
-                                    .font(.caption).foregroundStyle(.orange)
-                            }
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    GroupBox("四、最新中文字幕") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text(inbox.current.translated).font(.title3).fontWeight(.medium)
-                            if !inbox.current.original.isEmpty {
-                                Text(inbox.current.original).font(.caption).foregroundStyle(.secondary)
-                            }
-                            Text(inbox.current.status).font(.caption).foregroundStyle(.secondary)
-                            ForEach(inbox.history.prefix(4), id: \.updatedAt) { line in
-                                Divider()
-                                Text(line.translated)
-                            }
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    GroupBox("五、扫描范围") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Picker("识别区域", selection: $scanArea) {
-                                Text("对白优先").tag("bottom")
-                                Text("全屏").tag("full")
-                            }.pickerStyle(.segmented)
-                            Text("对白在屏幕上方时切换全屏；通常使用对白优先以减少界面干扰。")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    GroupBox("六、本地游戏专有名词") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("人名、技能名或菜单短语，整条文字完全匹配时优先按术语表显示。")
-                                .font(.caption).foregroundStyle(.secondary)
-                            DisclosureGroup("编辑术语表", isExpanded: $showGlossary) {
-                                Text("格式：原文=中文；每行一条")
-                                    .font(.caption).foregroundStyle(.secondary)
-                                TextEditor(text: $glossaryText)
-                                    .frame(height: 125)
-                                    .scrollContentBackground(.hidden)
-                                Button("保存到本机") { SharedSubtitles.setGlossary(glossaryText) }
-                                    .buttonStyle(.bordered)
-                            }
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    GroupBox("七、截图翻译（稳定备用方案）") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            PhotosPicker(selection: $capturedImage, matching: .images) {
-                                Label("从照片中选择游戏截图", systemImage: "photo")
-                            }.buttonStyle(.bordered)
-                            if !scannedText.isEmpty {
-                                Text("识别文字：\n" + scannedText).font(.caption)
-                                Button("在本机翻译截图文字") {
-                                    photoTranslationConfiguration = TranslationSession.Configuration(
-                                        source: Locale.Language(identifier: source),
-                                        target: Locale.Language(identifier: "zh-Hans"))
-                                }.buttonStyle(.borderedProminent)
-                            }
-                            if !photoTranslation.isEmpty { Text(photoTranslation).font(.headline) }
-                            Text(photoStatus).font(.caption).foregroundStyle(.secondary)
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    Text("无 API Key、无服务器、无本地 HTTP 端口。字幕广播、后台 PiP 和免费侧载的扩展兼容性尚未真机验证，不能保证所有游戏可用。")
-                        .font(.footnote).foregroundStyle(.secondary)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 18)
+                    .padding(.bottom, 24)
                 }
-                .padding()
-            }
-            .navigationTitle("GameLingo AI")
-            .groupBoxStyle(GameLingoGroupStyle())
-            .background(
-                LinearGradient(
-                    colors: [Color(red: 0.035, green: 0.055, blue: 0.12),
-                             Color(red: 0.055, green: 0.12, blue: 0.18),
-                             Color(red: 0.025, green: 0.045, blue: 0.09)],
-                    startPoint: .topLeading, endPoint: .bottomTrailing
-                ).ignoresSafeArea()
-            )
-            .onChange(of: source) { _, newValue in SharedSubtitles.setSourceLanguage(newValue) }
-            .onChange(of: scanArea) { _, newValue in SharedSubtitles.setScanArea(newValue) }
-            .onAppear {
-                glossaryText = UserDefaults(suiteName: SharedSubtitles.groupID)?
-                    .string(forKey: "glossaryText") ?? ""
-            }
-            .onReceive(inbox.$current) { message in
-                subtitleWindow.setText(message.translated)
-            }
-            .onChange(of: capturedImage) { _, image in
-                Task { await recognizeScreenshot(image) }
-            }
-            .translationTask(preparation) { session in
-                do {
-                    try await session.prepareTranslation()
-                    preparationMessage = "语言准备完成。如系统未下载请检查语言支持和网络。"
-                } catch {
-                    preparationMessage = "准备失败：\(error.localizedDescription)"
-                }
-            }
-            .translationTask(photoTranslationConfiguration) { session in
-                guard !scannedText.isEmpty else { return }
-                do {
-                    let reply = try await session.translate(scannedText)
-                    photoTranslation = reply.targetText
-                } catch {
-                    photoStatus = "本地翻译失败：\(error.localizedDescription)"
-                }
+                tabBar
             }
         }
+        .preferredColorScheme(.dark)
+        .onReceive(inbox.$current) { line in
+            if line.updatedAt > 0 { overlay.setText(line.translated) }
+        }
+        .onChange(of: language) { _, newValue in
+            SharedSubtitles.setSourceLanguage(newValue)
+            preparation = nil
+            preparationStatus = "语言已切换，请准备对应语言包"
+        }
+        .onChange(of: scanArea) { _, newValue in SharedSubtitles.setScanArea(newValue) }
+        .onChange(of: screenshot) { _, newValue in
+            Task { await readScreenshot(newValue) }
+        }
+        .translationTask(preparation) { session in
+            do {
+                try await session.prepareTranslation()
+                preparationStatus = "语言包已经准备完毕，可以开始翻译"
+            } catch {
+                preparationStatus = "语言包准备失败：\(error.localizedDescription)"
+            }
+        }
+        .translationTask(screenshotTranslation) { session in
+            guard !screenshotOriginal.isEmpty else { return }
+            do {
+                screenshotResult = try await session.translate(screenshotOriginal).targetText
+                screenshotStatus = "截图翻译完成 · 本机处理"
+            } catch {
+                screenshotStatus = "翻译失败：\(error.localizedDescription)"
+            }
+        }
+        .sheet(isPresented: $showUsage) { usageSheet }
     }
 
-    private var title: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "gamecontroller.fill")
-                .font(.system(size: 26)).foregroundStyle(.mint)
-                .frame(width: 56, height: 56)
-                .background(.mint.opacity(0.16), in: RoundedRectangle(cornerRadius: 15))
-            VStack(alignment: .leading, spacing: 5) {
-                Text("GameLingo AI").font(.system(size: 28, weight: .bold, design: .rounded))
-                Text("OFFLINE · 随身游戏翻译官")
-                    .font(.caption.bold()).tracking(0.8).foregroundStyle(.secondary)
+    private var header: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 17).fill(GLStyle.mint.opacity(0.14))
+                    .frame(width: 52, height: 52)
+                Image(systemName: "gamecontroller.fill")
+                    .font(.system(size: 23, weight: .semibold)).foregroundStyle(GLStyle.mint)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text("GameLingo").font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                Text("OFFLINE  ·  游戏语言助手").font(.system(size: 10, weight: .bold))
+                    .tracking(2).foregroundStyle(GLStyle.muted)
             }
             Spacer()
+            Button { showUsage = true } label: {
+                Image(systemName: "questionmark.circle")
+                    .font(.title2).foregroundStyle(GLStyle.muted)
+                    .frame(width: 42, height: 42)
+            }
+            .accessibilityLabel("使用说明")
         }
     }
 
-    private func metric(_ count: Int, _ title: String) -> some View {
-        VStack(spacing: 5) {
-            Text("\(count)").font(.system(size: 21, weight: .bold, design: .rounded))
-            Text(title).font(.caption2).foregroundStyle(.secondary)
+    private var dashboard: some View {
+        VStack(spacing: 17) {
+            HStack {
+                Label("单机本地翻译", systemImage: "checkmark.shield.fill")
+                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(GLStyle.mint)
+                Spacer()
+                Text("V2 · iOS 26+")
+                    .font(.system(size: 11, weight: .medium)).foregroundStyle(GLStyle.muted)
+            }
+            .padding(.horizontal, 4)
+
+            capsulePanel {
+                HStack(spacing: 12) {
+                    Image(systemName: connectionOkay ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .font(.title2).foregroundStyle(connectionOkay ? GLStyle.mint : .orange)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(connectionOkay ? "字幕共享通道正常" : "字幕共享通道不可用")
+                            .font(.system(size: 15, weight: .semibold))
+                        Text(connectionOkay ? "App 与录屏扩展可共享字幕与设置" : "侧载签名缺少 App Groups 权限，同屏自动字幕无法传递")
+                            .font(.system(size: 11)).foregroundStyle(GLStyle.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+
+            capsulePanel {
+                VStack(alignment: .leading, spacing: 12) {
+                    sectionHeading("翻译语言", icon: "character.book.closed.fill")
+                    Picker("原文语言", selection: $language) {
+                        Text("日语 → 中文").tag("ja")
+                        Text("英语 → 中文").tag("en")
+                        Text("韩语 → 中文").tag("ko")
+                    }.pickerStyle(.segmented)
+                    Button {
+                        preparation = TranslationSession.Configuration(
+                            source: Locale.Language(identifier: language),
+                            target: Locale.Language(identifier: "zh-Hans"))
+                    } label: {
+                        Label("准备 / 下载系统语言包", systemImage: "arrow.down.circle")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                    }
+                    .buttonStyle(.bordered)
+                    Text(preparationStatus)
+                        .font(.system(size: 11)).foregroundStyle(GLStyle.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            capsulePanel {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        sectionHeading("同屏字幕", icon: "captions.bubble.fill")
+                        Spacer()
+                        Text(overlay.isActive ? "ACTIVE" : "STANDBY")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(overlay.isActive ? GLStyle.mint : GLStyle.muted)
+                    }
+                    FloatingSubtitlePreview(controller: overlay)
+                        .frame(height: 154)
+                        .background(.black)
+                        .clipShape(RoundedRectangle(cornerRadius: 13))
+                        .overlay(RoundedRectangle(cornerRadius: 13)
+                            .stroke(GLStyle.mint.opacity(0.22), lineWidth: 1))
+                    Text("预览方向：↑ ABC 123 应当正向显示。小窗方向与此预览一致。")
+                        .font(.system(size: 11)).foregroundStyle(GLStyle.muted)
+                    Button {
+                        if overlay.isActive { overlay.stop() }
+                        else { overlay.start() }
+                    } label: {
+                        Label(overlay.isActive ? "关闭画中画字幕" : "开启画中画字幕",
+                              systemImage: overlay.isActive ? "xmark.circle.fill" : "rectangle.on.rectangle")
+                            .font(.system(size: 15, weight: .bold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                    }
+                    .buttonStyle(.plain)
+                    .background(GLStyle.mint, in: RoundedRectangle(cornerRadius: 12))
+                    .foregroundStyle(Color.black)
+                    Text(overlay.status).font(.system(size: 11)).foregroundStyle(GLStyle.muted)
+                    Divider().overlay(.white.opacity(0.08))
+                    HStack(spacing: 14) {
+                        BroadcastPicker().frame(width: 54, height: 54)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("开始系统屏幕共享")
+                                .font(.system(size: 14, weight: .semibold))
+                            Text("点击左侧圆形按钮 → 选择 GameLingo Broadcast → 开始广播 → 切回游戏")
+                                .font(.system(size: 11)).foregroundStyle(GLStyle.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+
+            capsulePanel {
+                VStack(alignment: .leading, spacing: 12) {
+                    sectionHeading("翻译运行状态", icon: "waveform.path.ecg")
+                    HStack(spacing: 8) {
+                        metric(inbox.telemetry.frames, "采集帧")
+                        metric(inbox.telemetry.scans, "文字扫描")
+                        metric(inbox.telemetry.translated, "翻译成功")
+                    }
+                    HStack(spacing: 7) {
+                        Circle().fill(isBroadcastRecent ? GLStyle.mint : .orange)
+                            .frame(width: 7, height: 7)
+                        Text(inbox.telemetry.phase)
+                            .font(.system(size: 13, weight: .semibold))
+                        Spacer()
+                        Text(isBroadcastRecent ? "刚刚更新" : "暂无实时状态")
+                            .font(.system(size: 10)).foregroundStyle(GLStyle.muted)
+                    }
+                    Text(inbox.telemetry.detail.isEmpty ? "启动录屏后，这里会显示是否收到了游戏画面。" : inbox.telemetry.detail)
+                        .font(.system(size: 11)).foregroundStyle(GLStyle.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if inbox.telemetry.failures > 0 {
+                        Label("累计错误：\(inbox.telemetry.failures) 次", systemImage: "exclamationmark.circle")
+                            .font(.system(size: 11)).foregroundStyle(.orange)
+                    }
+                }
+            }
+
+            capsulePanel {
+                VStack(alignment: .leading, spacing: 10) {
+                    sectionHeading("最新中文字幕", icon: "text.bubble")
+                    Text(inbox.current.translated)
+                        .font(.system(size: 19, weight: .semibold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .foregroundStyle(.white)
+                        .textSelection(.enabled)
+                    if !inbox.current.original.isEmpty {
+                        Text(inbox.current.original)
+                            .font(.system(size: 12)).foregroundStyle(GLStyle.muted)
+                            .textSelection(.enabled)
+                    }
+                    Text(inbox.current.status)
+                        .font(.system(size: 10, weight: .medium)).foregroundStyle(GLStyle.mint)
+                }
+            }
+        }
+    }
+
+    private var archive: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            Text("最近的游戏字幕").font(.title2.bold())
+            Text("仅保存在当前 App 内存中，不上传任何翻译内容。")
+                .font(.caption).foregroundStyle(GLStyle.muted)
+            if inbox.history.isEmpty {
+                capsulePanel {
+                    ContentUnavailableView("暂无翻译记录", systemImage: "text.bubble",
+                                           description: Text("开始识别游戏后，将显示最近的字幕。"))
+                }
+            }
+            ForEach(inbox.history, id: \.updatedAt) { line in
+                capsulePanel {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(line.translated).font(.headline)
+                        Text(line.original).font(.subheadline).foregroundStyle(GLStyle.muted)
+                        Text(Date(timeIntervalSince1970: line.updatedAt), style: .time)
+                            .font(.caption2).foregroundStyle(GLStyle.mint)
+                    }
+                }
+            }
+        }
+    }
+
+    private var preferences: some View {
+        VStack(alignment: .leading, spacing: 17) {
+            Text("个性化设置").font(.title2.bold())
+            capsulePanel {
+                VStack(alignment: .leading, spacing: 12) {
+                    sectionHeading("文字识别范围", icon: "viewfinder")
+                    Picker("识别区域", selection: $scanArea) {
+                        Text("对白优先").tag("bottom")
+                        Text("全屏").tag("full")
+                    }.pickerStyle(.segmented)
+                    Text("对白优先扫描画面下部，减少识别游戏地图与画中画字幕的干扰。部分游戏对白在顶部时选全屏。")
+                        .font(.caption).foregroundStyle(GLStyle.muted)
+                }
+            }
+            capsulePanel {
+                VStack(alignment: .leading, spacing: 12) {
+                    sectionHeading("游戏专有名词", icon: "text.book.closed")
+                    Text("原文=中文，每行一条。仅完全匹配时替换，避免误改剧情句子。")
+                        .font(.caption).foregroundStyle(GLStyle.muted)
+                    TextEditor(text: $glossary)
+                        .scrollContentBackground(.hidden)
+                        .frame(height: 120)
+                        .padding(6)
+                        .background(.black.opacity(0.24), in: RoundedRectangle(cornerRadius: 9))
+                    Button("保存术语表") { SharedSubtitles.setGlossary(glossary) }
+                        .buttonStyle(.borderedProminent).tint(GLStyle.blue)
+                }
+            }
+            capsulePanel {
+                VStack(alignment: .leading, spacing: 12) {
+                    sectionHeading("截图翻译", icon: "photo.on.rectangle")
+                    PhotosPicker(selection: $screenshot, matching: .images) {
+                        Label("选择一张游戏截图", systemImage: "photo.badge.plus")
+                    }.buttonStyle(.borderedProminent).tint(GLStyle.blue)
+                    if !screenshotOriginal.isEmpty {
+                        Text(screenshotOriginal).font(.caption).foregroundStyle(GLStyle.muted)
+                            .textSelection(.enabled)
+                        Button("在 iPhone 上翻译") {
+                            screenshotTranslation = TranslationSession.Configuration(
+                                source: Locale.Language(identifier: language),
+                                target: Locale.Language(identifier: "zh-Hans"))
+                        }.buttonStyle(.bordered)
+                    }
+                    if !screenshotResult.isEmpty {
+                        Text(screenshotResult).font(.headline).textSelection(.enabled)
+                    }
+                    if !screenshotStatus.isEmpty {
+                        Text(screenshotStatus).font(.caption).foregroundStyle(GLStyle.muted)
+                    }
+                }
+            }
+            capsulePanel {
+                VStack(alignment: .leading, spacing: 7) {
+                    sectionHeading("隐私与兼容性", icon: "lock.shield")
+                    Text("无 ChatGPT API、无转发端口。系统语言包首次需要联网下载。")
+                    Text("屏幕广播扩展与主 App 的实时共享需要双方有效的 App Groups 授权。画中画为系统播放功能，无法保证每个游戏或免费侧载签名下持续刷新。")
+                }.font(.caption).foregroundStyle(GLStyle.muted)
+            }
+        }
+    }
+
+    private var tabBar: some View {
+        HStack(spacing: 0) {
+            tab(0, "实时翻译", "dot.radiowaves.left.and.right")
+            tab(1, "字幕记录", "clock.arrow.circlepath")
+            tab(2, "设置", "slider.horizontal.3")
+        }
+        .padding(.top, 12).padding(.bottom, 6)
+        .background(GLStyle.panel.opacity(0.94))
+        .overlay(alignment: .top) { Rectangle().fill(.white.opacity(0.08)).frame(height: 1) }
+    }
+    private func tab(_ index: Int, _ title: String, _ symbol: String) -> some View {
+        Button { selectedTab = index } label: {
+            VStack(spacing: 5) {
+                Image(systemName: symbol).font(.system(size: 21, weight: .semibold))
+                Text(title).font(.system(size: 10, weight: .medium))
+            }
+            .foregroundStyle(selectedTab == index ? GLStyle.mint : GLStyle.muted)
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }.buttonStyle(.plain)
+    }
+    private func sectionHeading(_ title: String, icon: String) -> some View {
+        Label(title, systemImage: icon).font(.system(size: 15, weight: .bold))
+            .foregroundStyle(GLStyle.text)
+    }
+    private func capsulePanel<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(GLStyle.panel.opacity(0.88), in: RoundedRectangle(cornerRadius: 18))
+            .overlay(RoundedRectangle(cornerRadius: 18)
+                .stroke(.white.opacity(0.075), lineWidth: 1))
+    }
+    private func metric(_ count: Int, _ label: String) -> some View {
+        VStack(spacing: 6) {
+            Text("\(count)").font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .contentTransition(.numericText())
+            Text(label).font(.system(size: 10)).foregroundStyle(GLStyle.muted)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
-        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+        .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 11))
+    }
+    private var connectionOkay: Bool { SharedSubtitles.isGroupAvailable }
+    private var isBroadcastRecent: Bool {
+        inbox.telemetry.updatedAt > 0 &&
+        Date().timeIntervalSince1970 - inbox.telemetry.updatedAt < 12
+    }
+    private var usageSheet: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 20) {
+                Text("1 · 下载所选语言的本地翻译包。\n\n2 · 在首页开启画中画字幕，确认 ABC ↑ 方向正确。\n\n3 · 点击系统录屏按钮，选择 GameLingo Broadcast，开始共享。\n\n4 · 返回游戏，查看翻译。没有更新时返回 App 查看采集帧与错误信息。\n\n5 · 如果显示字幕共享通道不可用，需修复侧载签名中的 App Groups 权限。")
+                    .font(.body).lineSpacing(5)
+                Spacer()
+            }
+            .padding(22)
+            .navigationTitle("使用说明")
+            .toolbar { Button("完成") { showUsage = false } }
+        }.presentationDetents([.medium, .large])
     }
 
-    private func recognizeScreenshot(_ item: PhotosPickerItem?) async {
+    private func readScreenshot(_ item: PhotosPickerItem?) async {
         guard let item else { return }
-        photoStatus = "正在本机识别…"
+        screenshotStatus = "正在本机识别截图…"
         do {
             guard let data = try await item.loadTransferable(type: Data.self),
                   let image = UIImage(data: data), let cgImage = image.cgImage else {
-                photoStatus = "读取截图失败"; return
+                screenshotStatus = "无法读取图片"; return
             }
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
-            request.automaticallyDetectsLanguage = true
-            request.recognitionLanguages = ["ja-JP", "en-US", "ko-KR"]
+            request.recognitionLanguages = [["ja": "ja-JP", "en": "en-US", "ko": "ko-KR"][language] ?? "ja-JP"]
+            request.usesLanguageCorrection = true
             try VNImageRequestHandler(cgImage: cgImage).perform([request])
-            scannedText = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
-                .prefix(12).joined(separator: "\n")
-            photoTranslation = ""
-            photoTranslationConfiguration = nil
-            photoStatus = scannedText.isEmpty ? "没有识别到文字" : "识别完成，点击本机翻译"
-        } catch { photoStatus = "识别失败：\(error.localizedDescription)" }
+            screenshotOriginal = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+                .prefix(18).joined(separator: "\n")
+            screenshotResult = ""
+            screenshotTranslation = nil
+            screenshotStatus = screenshotOriginal.isEmpty ? "未识别到文字" : "识别完成，点击本机翻译"
+        } catch { screenshotStatus = "识别失败：\(error.localizedDescription)" }
     }
 }
 
 private struct BroadcastPicker: UIViewRepresentable {
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
-        let picker = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 60, height: 60))
+        let picker = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 54, height: 54))
         picker.preferredExtension = (Bundle.main.bundleIdentifier ?? "com.example.GameLingoAI") + ".BroadcastUpload"
         picker.showsMicrophoneButton = false
         return picker
     }
     func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
-}
-
-private struct GameLingoGroupStyle: GroupBoxStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            configuration.label.font(.headline).foregroundStyle(.white)
-            configuration.content
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            Color(red: 0.075, green: 0.115, blue: 0.19).opacity(0.94),
-            in: RoundedRectangle(cornerRadius: 18)
-        )
-        .overlay(RoundedRectangle(cornerRadius: 18)
-            .stroke(.white.opacity(0.09), lineWidth: 1))
-    }
 }

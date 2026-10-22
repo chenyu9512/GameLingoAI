@@ -2,11 +2,11 @@ import Foundation
 import Combine
 import CoreFoundation
 
-private func refreshOnDarwinSignal(_ center: CFNotificationCenter?,
-                                   _ observer: UnsafeMutableRawPointer?,
-                                   _ name: CFNotificationName?,
-                                   _ object: UnsafeRawPointer?,
-                                   _ userInfo: CFDictionary?) {
+private func onDarwinSubtitle(_ center: CFNotificationCenter?,
+                              _ observer: UnsafeMutableRawPointer?,
+                              _ name: CFNotificationName?,
+                              _ object: UnsafeRawPointer?,
+                              _ userInfo: CFDictionary?) {
     guard let observer else { return }
     let inbox = Unmanaged<SubtitleInbox>.fromOpaque(observer).takeUnretainedValue()
     DispatchQueue.main.async { inbox.refresh() }
@@ -21,9 +21,9 @@ final class SubtitleInbox: ObservableObject {
     init() {
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                         Unmanaged.passUnretained(self).toOpaque(),
-                                        refreshOnDarwinSignal, SharedSubtitles.signal.rawValue, nil,
+                                        onDarwinSubtitle, SharedSubtitles.signal.rawValue, nil,
                                         .deliverImmediately)
-        timer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
             self?.refresh()
         }
         refresh()
@@ -37,14 +37,14 @@ final class SubtitleInbox: ObservableObject {
     }
 
     func refresh() {
-        let data = SharedSubtitles.loadTelemetry()
-        if data != telemetry { telemetry = data }
+        let newTelemetry = SharedSubtitles.loadTelemetry()
+        if newTelemetry != telemetry { telemetry = newTelemetry }
         guard let message = SharedSubtitles.load() else { return }
         guard message.updatedAt > current.updatedAt else { return }
         current = message
-        if !message.original.isEmpty && !message.translated.isEmpty {
+        if !message.original.isEmpty, !message.translated.isEmpty {
             history.insert(message, at: 0)
+            if history.count > 100 { history.removeLast(history.count - 100) }
         }
-        if history.count > 100 { history.removeLast(history.count - 100) }
     }
 }

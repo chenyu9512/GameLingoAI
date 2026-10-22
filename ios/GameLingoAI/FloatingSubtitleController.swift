@@ -18,7 +18,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     let previewLayer = AVSampleBufferDisplayLayer()
     private var pictureInPicture: AVPictureInPictureController?
     private var frameTimer: Timer?
-    private var currentText = "字幕预览 ↑ ABC 123"
+    private var currentText = "字幕预览  ↑  ABC 123"
     private var lastFrameTime: Double = 0
     private let ciContext = CIContext(options: [.cacheIntermediates: false])
 
@@ -146,8 +146,8 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
                                                kCVPixelFormatType_32BGRA,
                                                properties as CFDictionary, &pixelBuffer)
         guard createStatus == kCVReturnSuccess, let buffer = pixelBuffer else { return }
-        // Preserve the renderer's natural pixel orientation. The previous
-        // flipped CGContext introduced upside-down PiP captions.
+        // Copy the rendered UIKit CGImage into the pixel buffer without an extra
+        // CoreGraphics axis transform. The old CGContext flip inverted PiP text.
         let sourceImage = CIImage(cgImage: cgImage)
         ciContext.render(sourceImage, to: buffer,
                          bounds: sourceImage.extent,

@@ -10,14 +10,13 @@ workflows:
         script: |
           set -e
           python3 tools/prepare_build.py
-          python3 tools/generate_app_icon.py
           python3 tools/build_xcodeproj.py
       - name: Compile iOS app and ReplayKit extension (no code signing)
         script: |
           set -e
           mkdir -p "$CM_BUILD_DIR/artifacts"
           BUILD_LOG="$CM_BUILD_DIR/artifacts/xcodebuild.log"
-          echo "Building latest commit: ${CM_COMMIT:-unknown}"
+          echo "Building commit: ${CM_COMMIT:-unknown}"
           if xcodebuild \
             -project "$CM_BUILD_DIR/GameLingoAI.xcodeproj" \
             -scheme GameLingoAI \
@@ -34,9 +33,7 @@ workflows:
           else
             echo "===== Swift/Xcode compiler diagnostics ====="
             grep -nE 'error:|warning:|does not conform|failed' "$BUILD_LOG" | tail -n 90 || true
-            echo "===== Final 80 build lines ====="
             tail -n 80 "$BUILD_LOG"
-            echo "Full build log: artifacts/xcodebuild.log"
             exit 65
           fi
       - name: Export unsigned IPA
