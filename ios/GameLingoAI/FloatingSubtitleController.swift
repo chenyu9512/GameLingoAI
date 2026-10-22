@@ -19,8 +19,16 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     let previewLayer = AVSampleBufferDisplayLayer()
     private var pictureInPicture: AVPictureInPictureController?
     private var frameTimer: Timer?
-    private var currentText = "字幕预览  ↑  ABC 123"
-    private var pages = ["字幕预览  ↑  ABC 123"]
+    private struct SubtitlePage {
+        let original: String
+        let translated: String
+    }
+    private var currentOriginal = "おかえりなさい。"
+    private var currentText = "欢迎回来。"
+    private var pages = [SubtitlePage(original: "おかえりなさい。", translated: "欢迎回来。")]
+    // The requested default is bilingual: game original above, Chinese below.
+    private var subtitleMode = "bilingual"
+    private var layoutMode = "standard"
     private var pageIndex = 0
     private var pageChangedAt = CACurrentMediaTime()
     private var fontScale: CGFloat = 1
@@ -60,20 +68,33 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         previewLayer.frame = bounds
     }
 
+    // Backward-compatible entry point for the older ReplayKit workflow.
     func setText(_ text: String) {
-        let updated = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "等待游戏字幕…" : text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard updated != currentText else { return }
-        currentText = updated
-        pages = makePages(for: updated)
-        pageIndex = 0
-        pageChangedAt = CACurrentMediaTime()
-        renderFrame()
+        setBilingual(original: "", translated: text)
+    }
+
+    func setBilingual(original: String, translated: String) {
+        let nextOriginal = original.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nextTranslated = translated.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard nextOriginal != currentOriginal || nextTranslated != currentText else { return }
+        currentOriginal = nextOriginal
+        currentText = nextTranslated.isEmpty ? "等待中文字幕…" : nextTranslated
+        rebuildPages()
+    }
+
+    func setMode(_ mode: String, layout: String) {
+        subtitleMode = ["bilingual", "chinese", "original"].contains(mode) ? mode : "bilingual"
+        layoutMode = ["compact", "standard", "learning"].contains(layout) ? layout : "standard"
+        rebuildPages()
     }
 
     func setFontScale(_ scale: CGFloat) {
-        fontScale = min(1.45, max(0.75, scale))
-        pages = makePages(for: currentText)
+        fontScale = min(1.4, max(0.8, scale))
+        rebuildPages()
+    }
+
+    private func rebuildPages() {
+        pages = makeBilingualPages()
         pageIndex = 0
         pageChangedAt = CACurrentMediaTime()
         renderFrame()
@@ -130,41 +151,40 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         frameTimer?.tolerance = 0.12
     }
 
-    // Paginate long translated dialogue instead of drawing it below the
-    // bottom edge of a tiny system PiP window.
-    private func makePages(for text: String) -> [String] {
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-        paragraph.lineBreakMode = .byWordWrapping
-        paragraph.lineSpacing = 8
-        let font = UIFont.systemFont(ofSize: 44 * fontScale, weight: .bold)
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .paragraphStyle: paragraph
-        ]
-        var result: [String] = []
-        var page = ""
-        for character in text.prefix(480) {
-            let next = page + String(character)
-            let bounds = (next as NSString).boundingRect(
-                with: CGSize(width: frameSize.width - 42,
-                             height: CGFloat.greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading],
-                attributes: attributes,
-                context: nil)
-            if bounds.height > frameSize.height - 43 && !page.isEmpty {
-                result.append(page.trimmingCharacters(in: .whitespacesAndNewlines))
-                page = String(character)
-            } else {
-                page = next
+    // Keep the two languages in a single frame. For longer lines, display
+    // consecutive paired portions rather than silently clipping the bottom.
+    private func makeBilingualPages() -> [SubtitlePage] {
+        let origCount = layoutMode == "learning" ? 68 : 78
+        let chineseCount = layoutMode == "compact" ? 40 : 53
+        func split(_ source: String, at limit: Int) -> [String] {
+            let text = source.trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.isEmpty { return [""] }
+            var result: [String] = []
+            var working = ""
+            for character in text.prefix(640) {
+                working.append(character)
+                if working.count >= limit
+                    || (working.count > limit / 2
+                        && "。！？!?；;。\n".contains(character)) {
+                    result.append(working.trimmingCharacters(in: .whitespacesAndNewlines))
+                    working = ""
+                }
             }
+            if !working.isEmpty {
+                result.append(working.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            return result.isEmpty ? [""] : result
         }
-        if !page.isEmpty {
-            result.append(page.trimmingCharacters(in: .whitespacesAndNewlines))
+
+        let sourcePages = split(currentOriginal, at: origCount)
+        let targetPages = split(currentText, at: chineseCount)
+        let count = max(sourcePages.count, targetPages.count)
+        return (0..<max(1, count)).map { index in
+            SubtitlePage(original: index < sourcePages.count ? sourcePages[index] : "",
+                         translated: index < targetPages.count ? targetPages[index] : "")
         }
-        return result.filter { !$0.isEmpty }.isEmpty
-            ? ["等待游戏字幕…"] : result.filter { !$0.isEmpty }
     }
+
 
     private func renderFrame() {
         guard Thread.isMainThread else {
@@ -189,43 +209,78 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
             UIColor(red: 0.24, green: 0.92, blue: 0.78, alpha: 1).setFill()
             cg.fill(CGRect(x: 0, y: 0, width: size.width, height: 5))
 
-            let displayText = pages.indices.contains(pageIndex)
-                ? pages[pageIndex] : currentText
-            let area = CGRect(x: 21, y: 15, width: size.width - 42, height: size.height - 30)
-            let paragraph = NSMutableParagraphStyle()
-            paragraph.alignment = .center
-            paragraph.lineBreakMode = .byWordWrapping
-            paragraph.lineSpacing = 8
+            let page = pages.indices.contains(pageIndex)
+                ? pages[pageIndex]
+                : SubtitlePage(original: currentOriginal, translated: currentText)
 
-            var chosenFont = UIFont.systemFont(ofSize: 44 * fontScale, weight: .bold)
-            var lineHeight: CGFloat = 0
-            for pointSize in stride(from: 72.0 * Double(fontScale),
-                                    through: 44.0 * Double(fontScale), by: -2) {
-                let candidate = UIFont.systemFont(ofSize: CGFloat(pointSize), weight: .bold)
-                let measure = (displayText as NSString).boundingRect(
-                    with: CGSize(width: area.width, height: CGFloat.greatestFiniteMagnitude),
-                    options: [.usesLineFragmentOrigin, .usesFontLeading],
-                    attributes: [.font: candidate, .paragraphStyle: paragraph],
-                    context: nil)
-                chosenFont = candidate
-                lineHeight = ceil(measure.height)
-                if lineHeight <= area.height - 9 { break }
+            let showOriginal = subtitleMode != "chinese" && !page.original.isEmpty
+            let showChinese = subtitleMode != "original" && !page.translated.isEmpty
+            let inset: CGFloat = 22
+            let areaWidth = size.width - inset * 2
+            let origArea: CGRect
+            let zhArea: CGRect
+            if showOriginal && showChinese {
+                let divider = layoutMode == "learning" ? CGFloat(171) :
+                              (layoutMode == "compact" ? CGFloat(126) : CGFloat(149))
+                origArea = CGRect(x: inset, y: 15, width: areaWidth, height: divider - 20)
+                zhArea = CGRect(x: inset, y: divider + 5, width: areaWidth,
+                                height: size.height - divider - 22)
+                UIColor.white.withAlphaComponent(0.12).setFill()
+                cg.fill(CGRect(x: 40, y: divider, width: size.width - 80, height: 1))
+            } else {
+                origArea = CGRect(x: inset, y: 22, width: areaWidth, height: size.height - 44)
+                zhArea = origArea
             }
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: chosenFont,
-                .foregroundColor: UIColor.white,
-                .paragraphStyle: paragraph
-            ]
-            let boundedHeight = min(lineHeight, area.height)
-            let centered = CGRect(x: area.minX,
-                                  y: area.midY - boundedHeight / 2,
-                                  width: area.width,
-                                  height: boundedHeight + 2)
-            (displayText as NSString).draw(with: centered,
-                                           options: [.usesLineFragmentOrigin, .usesFontLeading],
-                                           attributes: attributes,
-                                           context: nil)
 
+            func drawCentered(_ value: String, in area: CGRect,
+                              color: UIColor, maximum: CGFloat, minimum: CGFloat,
+                              weight: UIFont.Weight) {
+                guard !value.isEmpty else { return }
+                let paragraph = NSMutableParagraphStyle()
+                paragraph.alignment = .center
+                paragraph.lineBreakMode = .byWordWrapping
+                paragraph.lineSpacing = 5
+
+                var selectedFont = UIFont.systemFont(ofSize: minimum, weight: weight)
+                var selectedHeight: CGFloat = 0
+                for point in Swift.stride(from: maximum, through: minimum, by: -2) {
+                    let font = UIFont.systemFont(ofSize: point, weight: weight)
+                    let bounds = (value as NSString).boundingRect(
+                        with: CGSize(width: area.width,
+                                     height: CGFloat.greatestFiniteMagnitude),
+                        options: [.usesLineFragmentOrigin, .usesFontLeading],
+                        attributes: [.font: font, .paragraphStyle: paragraph],
+                        context: nil)
+                    selectedFont = font
+                    selectedHeight = ceil(bounds.height)
+                    if selectedHeight <= area.height - 4 { break }
+                }
+                let textHeight = min(selectedHeight, area.height)
+                let textBounds = CGRect(x: area.minX,
+                                        y: area.midY - textHeight / 2,
+                                        width: area.width, height: textHeight + 2)
+                (value as NSString).draw(with: textBounds,
+                    options: [.usesLineFragmentOrigin, .usesFontLeading,
+                              .truncatesLastVisibleLine],
+                    attributes: [.font: selectedFont, .foregroundColor: color,
+                                 .paragraphStyle: paragraph],
+                    context: nil)
+            }
+
+            if showOriginal {
+                let fontSize: CGFloat = layoutMode == "compact" ? 37 : 44
+                drawCentered(page.original, in: origArea,
+                             color: UIColor(red: 0.42, green: 0.94, blue: 0.85, alpha: 1),
+                             maximum: fontSize * fontScale,
+                             minimum: 28 * fontScale, weight: .medium)
+            }
+            if showChinese {
+                let fontSize: CGFloat = layoutMode == "compact" ? 68 :
+                                        (layoutMode == "learning" ? 56 : 64)
+                drawCentered(page.translated, in: zhArea, color: .white,
+                             maximum: fontSize * fontScale,
+                             minimum: 38 * fontScale, weight: .bold)
+            }
             // Nonverbal progress indicator for subtitles that require pages.
             if pages.count > 1 {
                 let progressWidth = size.width / CGFloat(pages.count)
