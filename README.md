@@ -2,6 +2,14 @@
 
 > **目标：解决 SideStore 对 ReplayKit 扩展 App Groups 共享不稳定的问题。** 新增的 `ios-direct-unsigned` 工作流仅构建主 App，不嵌入 BroadcastUpload 扩展，也不请求 App Groups 权限；用户授权后通过 iOS 27 ScreenCaptureKit 直接获得屏幕帧，Vision OCR 与 Apple Translation 均在 iPhone 本地运行。
 
+## PiP 字幕布局修复（v2.2.0 build 3）
+
+- 图像采用 640×360 像素，**`UIGraphicsImageRendererFormat.scale = 1.0`**，与 BGRA PixelBuffer 大小一致；避免 Retina 绘制输出裁切。
+- 小窗只保留字幕：居中、自动字号适配、长对白 3.2 秒换页，使用边缘细线提示翻页。
+- 画中画界面增加 **字号 80%–140%**、**显示小窗测试字幕** 和 **字幕帧输出计数**。
+- 界面预览和系统 PiP 小窗共用同一视频渲染管线。先测试字号和位置，再返回游戏确认画面采集和实时翻译。
+- 此代码已提交 GitHub，**尚未在 Codemagic / 真实 iPhone 完成此次修复的编译与运行验收**。
+
 ## iOS 27 直采版本的安装识别（2026-10-22 修订）
 
 - **直采版本安装后名称为 `GameLingo Direct`**，Bundle ID 使用单独的 `com.example.GameLingoAI.direct`（如果使用自定义基础 ID 则追加 `.direct`）。这能避免 SideStore 将它误认为先前需要 App Groups 的 ReplayKit 版。
