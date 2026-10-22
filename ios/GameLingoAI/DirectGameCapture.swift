@@ -247,7 +247,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             busy = false
             gate.unlock()
         }
-        let fingerprint = frameFingerprint(buffer)
+        let fingerprint = frameFingerprint(buffer, region: snapshot.roi)
         let staticScene = fingerprint != 0 && fingerprint == lastFingerprint
         // Still recheck static frames periodically: failed translations may retry,
         // and the same visual frame may need new state after UI changes.
@@ -293,23 +293,35 @@ final class DirectGameCapture: NSObject, ObservableObject,
 
     // Cheap frame-change detector; supports packed and planar CVPixelBuffers.
     // It intentionally samples only a few bytes and does not retain the frame.
-    private func frameFingerprint(_ buffer: CVPixelBuffer) -> UInt64 {
+    private func frameFingerprint(_ buffer: CVPixelBuffer, region: CGRect) -> UInt64 {
         CVPixelBufferLockBaseAddress(buffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
         let planar = CVPixelBufferGetPlaneCount(buffer) > 0
         let base = planar ? CVPixelBufferGetBaseAddressOfPlane(buffer, 0)
                           : CVPixelBufferGetBaseAddress(buffer)
         guard let base else { return 0 }
-        let strideBytes = planar ? CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
-                                 : CVPixelBufferGetBytesPerRow(buffer)
+        let rowBytes = planar ? CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
+                              : CVPixelBufferGetBytesPerRow(buffer)
         let rows = planar ? CVPixelBufferGetHeightOfPlane(buffer, 0)
                           : CVPixelBufferGetHeight(buffer)
-        guard strideBytes > 0, rows > 0 else { return 0 }
+        guard rowBytes > 0, rows > 0 else { return 0 }
+
+        // Increase coverage across the selected dialogue region: a sparse
+        // full-screen grid can miss a small glyph change and delay subtitles.
+        let top = max(0, min(rows - 1,
+                            Int((1 - region.maxY) * CGFloat(rows))))
+        let bottom = max(top + 1, min(rows,
+                                    Int((1 - region.minY) * CGFloat(rows))))
+        let left = max(0, min(rowBytes - 1, Int(region.minX * CGFloat(rowBytes))))
+        let right = max(left + 1, min(rowBytes,
+                                     Int(region.maxX * CGFloat(rowBytes))))
+        let yStep = max(1, (bottom - top) / 70)
+        let xStep = max(1, (right - left) / 110)
         let bytes = base.assumingMemoryBound(to: UInt8.self)
         var hash: UInt64 = 14695981039346656037
-        for y in Swift.stride(from: 0, to: rows, by: max(1, rows / 17)) {
-            for x in Swift.stride(from: 0, to: strideBytes, by: max(1, strideBytes / 19)) {
-                hash = (hash ^ UInt64(bytes[y * strideBytes + x])) &* 1099511628211
+        for y in Swift.stride(from: top, to: bottom, by: yStep) {
+            for x in Swift.stride(from: left, to: right, by: xStep) {
+                hash = (hash ^ UInt64(bytes[y * rowBytes + x])) &* 1099511628211
             }
         }
         return hash
