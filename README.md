@@ -6,6 +6,8 @@
 
 1. 必须使用 **iOS 27 或更新版本**。如果手机仍是 iOS 26，不能安装此直采 IPA；保留原来的 `ios-offline-unsigned` 工作流供旧系统测试。
 2. Codemagic 中选择 `main` 分支，工作流选 **`ios-direct-unsigned`**，不要再选择 `ios-offline-unsigned`。
+   - 此工作流明确固定 **Xcode 27.1（iOS 27 SDK）**，不要改回 `xcode: latest`，因为 Codemagic 的 `latest` 当前可能指向 Xcode 26.6，导致 `import ScreenCaptureKit` 编译失败。
+   - 需要 **iPhone 自身运行 iOS 27 或更新版**才能安装直采 IPA。
 3. 构建成功后下载 `GameLingoAI-Direct-iOS27-unsigned.ipa`，使用 SideStore 侧载并签名。这个 IPA 只有单个 App，没有独立的广播扩展，也不需要创建 App Group。
 4. 在 GameLingo 中下载所需 Apple 本地语言包，开启画中画字幕，再点击 **授权并捕获整个屏幕**。
 5. 系统 picker 里请选择**整个屏幕**，不要只选择 GameLingo 自己，随后切到游戏。采集与翻译状态可在 App 中查看。
