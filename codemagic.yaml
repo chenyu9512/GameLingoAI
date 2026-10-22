@@ -55,7 +55,7 @@ workflows:
     instance_type: mac_mini_m2
     max_build_duration: 40
     environment:
-      xcode: latest
+      xcode: '27.1'
     scripts:
       - name: Generate single-target Xcode project
         script: |
@@ -68,6 +68,13 @@ workflows:
           mkdir -p "$CM_BUILD_DIR/artifacts"
           BUILD_LOG="$CM_BUILD_DIR/artifacts/xcodebuild-direct.log"
           echo "Building commit: ${CM_COMMIT:-unknown}"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          SDK_MAJOR="$(xcrun --sdk iphoneos --show-sdk-version | cut -d. -f1)"
+          if [ "$SDK_MAJOR" -lt 27 ]; then
+            echo "ERROR: Direct iOS 27 ScreenCaptureKit requires Xcode 27 SDK or later"
+            exit 1
+          fi
           if xcodebuild \
             -project "$CM_BUILD_DIR/GameLingoAI.xcodeproj" \
             -scheme GameLingoAI \
