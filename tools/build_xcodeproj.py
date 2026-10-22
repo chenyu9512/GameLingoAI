@@ -40,11 +40,14 @@ src_ext=['ios/BroadcastUpload/SampleHandler.swift']
 src_shared=['ios/Shared/SubtitleMessage.swift','ios/Shared/BuildIdentity.swift']
 plists=['ios/GameLingoAI/Info.plist','ios/BroadcastUpload/Info.plist']
 ents=['ios/GameLingoAI/GameLingoAI.entitlements','ios/BroadcastUpload/BroadcastUpload.entitlements']
+assets='ios/GameLingoAI/Assets.xcassets'
 files=src_app+src_ext+src_shared+plists+ents
 refs={}
 for p in files:
     typ='sourcecode.swift' if p.endswith('.swift') else ('text.plist.entitlements' if p.endswith('.entitlements') else 'text.plist.xml')
     refs[p]=obj('fileref:'+p,'PBXFileReference',lastKnownFileType=typ,path=Path(p).name,sourceTree='<group>')
+
+refs[assets]=obj('fileref:'+assets,'PBXFileReference',lastKnownFileType='folder.assetcatalog',path='Assets.xcassets',sourceTree='<group>')
 
 app_product=obj('prod:app','PBXFileReference',explicitFileType='wrapper.application',includeInIndex=0,path='GameLingoAI.app',sourceTree='BUILT_PRODUCTS_DIR')
 ext_product=obj('prod:extension','PBXFileReference',explicitFileType='wrapper.app-extension',includeInIndex=0,path='BroadcastUpload.appex',sourceTree='BUILT_PRODUCTS_DIR')
@@ -53,7 +56,7 @@ app_src=[obj('build:'+p+':app','PBXBuildFile',fileRef=refs[p]) for p in src_app+
 ext_src=[obj('build:'+p+':ext','PBXBuildFile',fileRef=refs[p]) for p in src_ext+src_shared]
 ext_embed=obj('build:extension:embed','PBXBuildFile',fileRef=ext_product,settings={'ATTRIBUTES':['RemoveHeadersOnCopy']})
 
-app_group=obj('group:app','PBXGroup',children=[refs[p] for p in src_app+plists[:1]+ents[:1]],path='GameLingoAI',sourceTree='<group>')
+app_group=obj('group:app','PBXGroup',children=[refs[p] for p in src_app+plists[:1]+ents[:1]]+[refs[assets]],path='GameLingoAI',sourceTree='<group>')
 ext_group=obj('group:extension','PBXGroup',children=[refs[p] for p in src_ext+plists[1:]+ents[1:]],path='BroadcastUpload',sourceTree='<group>')
 shared_group=obj('group:shared','PBXGroup',children=[refs[p] for p in src_shared],path='Shared',sourceTree='<group>')
 ios_group=obj('group:ios','PBXGroup',children=[app_group,ext_group,shared_group],path='ios',sourceTree='<group>')
@@ -64,7 +67,8 @@ sources_app=obj('phase:sources:app','PBXSourcesBuildPhase',buildActionMask=21474
 sources_ext=obj('phase:sources:ext','PBXSourcesBuildPhase',buildActionMask=2147483647,files=ext_src,runOnlyForDeploymentPostprocessing=0)
 frameworks_app=obj('phase:frameworks:app','PBXFrameworksBuildPhase',buildActionMask=2147483647,files=[],runOnlyForDeploymentPostprocessing=0)
 frameworks_ext=obj('phase:frameworks:ext','PBXFrameworksBuildPhase',buildActionMask=2147483647,files=[],runOnlyForDeploymentPostprocessing=0)
-resources_app=obj('phase:resources:app','PBXResourcesBuildPhase',buildActionMask=2147483647,files=[],runOnlyForDeploymentPostprocessing=0)
+app_assets=obj('build:app:assets','PBXBuildFile',fileRef=refs[assets])
+resources_app=obj('phase:resources:app','PBXResourcesBuildPhase',buildActionMask=2147483647,files=[app_assets],runOnlyForDeploymentPostprocessing=0)
 resources_ext=obj('phase:resources:ext','PBXResourcesBuildPhase',buildActionMask=2147483647,files=[],runOnlyForDeploymentPostprocessing=0)
 embed_phase=obj('phase:embed','PBXCopyFilesBuildPhase',buildActionMask=2147483647,dstPath='',dstSubfolderSpec=13,files=[ext_embed],name='Embed App Extensions',runOnlyForDeploymentPostprocessing=0)
 
@@ -73,14 +77,15 @@ common={
  'SWIFT_VERSION':'5.9','IPHONEOS_DEPLOYMENT_TARGET':'26.0',
  'SDKROOT':'iphoneos','CODE_SIGN_STYLE':'Automatic',
  'TARGETED_DEVICE_FAMILY':'1,2', 'SUPPORTS_MACCATALYST':'NO',
- 'MARKETING_VERSION':'1.3.0','CURRENT_PROJECT_VERSION':'1',
+ 'MARKETING_VERSION':'2.0.0','CURRENT_PROJECT_VERSION':'1',
  'GENERATE_INFOPLIST_FILE':'NO', 'SWIFT_EMIT_LOC_STRINGS':'YES',
  'ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS':'NO',
 }
 app_build={**common, 'PRODUCT_BUNDLE_IDENTIFIER':BUNDLE_ID,
  'INFOPLIST_FILE':'ios/GameLingoAI/Info.plist',
  'CODE_SIGN_ENTITLEMENTS':'ios/GameLingoAI/GameLingoAI.entitlements',
- 'PRODUCT_NAME':'GameLingoAI'}
+ 'PRODUCT_NAME':'GameLingoAI',
+ 'ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon'}
 ext_build={**common, 'PRODUCT_BUNDLE_IDENTIFIER':BUNDLE_ID+'.BroadcastUpload',
  'INFOPLIST_FILE':'ios/BroadcastUpload/Info.plist',
  'CODE_SIGN_ENTITLEMENTS':'ios/BroadcastUpload/BroadcastUpload.entitlements',
