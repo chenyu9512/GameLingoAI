@@ -8,6 +8,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE_ID = (ROOT / '.app_bundle_id').read_text().strip() if (ROOT / '.app_bundle_id').exists() else 'com.example.GameLingoAI'
 DIRECT = os.environ.get('GAMELINGO_DIRECT_CAPTURE') == '1'
+if DIRECT:
+    BUNDLE_ID += '.direct'
 DEST = ROOT / 'GameLingoAI.xcodeproj'
 DEST.mkdir(exist_ok=True)
 
@@ -37,7 +39,7 @@ def obj(key, isa, **props):
     objects[key]=dict(isa=isa,**props)
     return Raw(i)
 
-src_app=['ios/GameLingoAI/GameLingoAIApp.swift','ios/GameLingoAI/ContentView.swift','ios/GameLingoAI/SubtitleInbox.swift','ios/GameLingoAI/FloatingSubtitleController.swift','ios/GameLingoAI/DirectGameCapture.swift']
+src_app=(['ios/GameLingoAI/GameLingoAIApp.swift','ios/GameLingoAI/DirectHomeView.swift','ios/GameLingoAI/FloatingSubtitleController.swift','ios/GameLingoAI/DirectGameCapture.swift'] if DIRECT else ['ios/GameLingoAI/GameLingoAIApp.swift','ios/GameLingoAI/ContentView.swift','ios/GameLingoAI/SubtitleInbox.swift','ios/GameLingoAI/FloatingSubtitleController.swift'])
 src_ext=['ios/BroadcastUpload/SampleHandler.swift']
 src_shared=['ios/Shared/SubtitleMessage.swift','ios/Shared/BuildIdentity.swift']
 plists=['ios/GameLingoAI/Info.plist','ios/BroadcastUpload/Info.plist','ios/GameLingoAI/InfoDirect.plist']
@@ -54,7 +56,7 @@ refs[assets]=obj('fileref:'+assets,'PBXFileReference',lastKnownFileType='folder.
 app_product=obj('prod:app','PBXFileReference',explicitFileType='wrapper.application',includeInIndex=0,path='GameLingoAI.app',sourceTree='BUILT_PRODUCTS_DIR')
 ext_product=obj('prod:extension','PBXFileReference',explicitFileType='wrapper.app-extension',includeInIndex=0,path='BroadcastUpload.appex',sourceTree='BUILT_PRODUCTS_DIR')
 
-app_src=[obj('build:'+p+':app','PBXBuildFile',fileRef=refs[p]) for p in src_app+src_shared]
+app_src=[obj('build:'+p+':app','PBXBuildFile',fileRef=refs[p]) for p in src_app+([] if DIRECT else src_shared)]
 ext_src=[obj('build:'+p+':ext','PBXBuildFile',fileRef=refs[p]) for p in src_ext+src_shared]
 ext_embed=obj('build:extension:embed','PBXBuildFile',fileRef=ext_product,settings={'ATTRIBUTES':['RemoveHeadersOnCopy']})
 
@@ -86,6 +88,7 @@ common={
 app_build={**common, 'PRODUCT_BUNDLE_IDENTIFIER':BUNDLE_ID,
  'INFOPLIST_FILE':'ios/GameLingoAI/InfoDirect.plist' if DIRECT else 'ios/GameLingoAI/Info.plist',
  'CODE_SIGN_ENTITLEMENTS':'' if DIRECT else 'ios/GameLingoAI/GameLingoAI.entitlements',
+ 'SWIFT_ACTIVE_COMPILATION_CONDITIONS':'DIRECT_CAPTURE' if DIRECT else '',
  'PRODUCT_NAME':'GameLingoAI',
  'ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon'}
 ext_build={**common, 'PRODUCT_BUNDLE_IDENTIFIER':BUNDLE_ID+'.BroadcastUpload',
