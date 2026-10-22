@@ -59,7 +59,7 @@ ext_src=[obj('build:'+p+':ext','PBXBuildFile',fileRef=refs[p]) for p in src_ext+
 ext_embed=obj('build:extension:embed','PBXBuildFile',fileRef=ext_product,settings={'ATTRIBUTES':['RemoveHeadersOnCopy']})
 
 app_group=obj('group:app','PBXGroup',children=[refs[p] for p in src_app+plists[:1]+plists[2:]+ents[:1]]+[refs[assets]],path='GameLingoAI',sourceTree='<group>')
-ext_group=obj('group:extension','PBXGroup',children=[refs[p] for p in src_ext+plists[1:]+ents[1:]],path='BroadcastUpload',sourceTree='<group>')
+ext_group=obj('group:extension','PBXGroup',children=[refs[p] for p in src_ext+plists[1:2]+ents[1:]],path='BroadcastUpload',sourceTree='<group>')
 shared_group=obj('group:shared','PBXGroup',children=[refs[p] for p in src_shared],path='Shared',sourceTree='<group>')
 ios_group=obj('group:ios','PBXGroup',children=[app_group,ext_group,shared_group],path='ios',sourceTree='<group>')
 prod_group=obj('group:products','PBXGroup',children=[app_product,ext_product],name='Products',sourceTree='<group>')
