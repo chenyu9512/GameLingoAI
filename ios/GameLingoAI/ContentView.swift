@@ -17,8 +17,8 @@ struct ContentView: View {
     @StateObject private var inbox = SubtitleInbox()
     @StateObject private var overlay = FloatingSubtitleController()
     @State private var selectedTab = 0
-    @State private var language = SharedSubtitles.sourceLanguage
-    @State private var scanArea = SharedSubtitles.scanArea
+    @State private var language = UserDefaults.standard.string(forKey: "direct.sourceLanguage") ?? SharedSubtitles.sourceLanguage
+    @State private var scanArea = UserDefaults.standard.string(forKey: "direct.scanArea") ?? SharedSubtitles.scanArea
     @State private var preparation: TranslationSession.Configuration?
     @State private var preparationStatus = "未准备语言包"
     @State private var screenshot: PhotosPickerItem?
@@ -59,10 +59,14 @@ struct ContentView: View {
         }
         .onChange(of: language) { _, newValue in
             SharedSubtitles.setSourceLanguage(newValue)
+            UserDefaults.standard.set(newValue, forKey: "direct.sourceLanguage")
             preparation = nil
             preparationStatus = "语言已切换，请准备对应语言包"
         }
-        .onChange(of: scanArea) { _, newValue in SharedSubtitles.setScanArea(newValue) }
+        .onChange(of: scanArea) { _, newValue in
+            SharedSubtitles.setScanArea(newValue)
+            UserDefaults.standard.set(newValue, forKey: "direct.scanArea")
+        }
         .onChange(of: screenshot) { _, newValue in
             Task { await readScreenshot(newValue) }
         }
@@ -116,11 +120,20 @@ struct ContentView: View {
                 Label("单机本地翻译", systemImage: "checkmark.shield.fill")
                     .font(.system(size: 12, weight: .semibold)).foregroundStyle(GLStyle.mint)
                 Spacer()
-                Text("V2 · iOS 26+")
+                Text("V2.1 · 本机直采")
                     .font(.system(size: 11, weight: .medium)).foregroundStyle(GLStyle.muted)
             }
             .padding(.horizontal, 4)
 
+            if #available(iOS 27.0, *) {
+                capsulePanel {
+                    Label("本机直采模式：无需 App Groups", systemImage: "checkmark.shield.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(GLStyle.mint)
+                    Text("iOS 27 的 ScreenCaptureKit 在主 App 内处理画面，不经过侧载广播扩展。请在下方授权整个屏幕。")
+                        .font(.system(size: 11)).foregroundStyle(GLStyle.muted)
+                }
+            } else {
             capsulePanel {
                 HStack(spacing: 12) {
                     Image(systemName: connectionOkay ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
@@ -134,6 +147,8 @@ struct ContentView: View {
                     }
                     Spacer(minLength: 0)
                 }
+            }
+
             }
 
             capsulePanel {
@@ -193,6 +208,11 @@ struct ContentView: View {
                     .foregroundStyle(Color.black)
                     Text(overlay.status).font(.system(size: 11)).foregroundStyle(GLStyle.muted)
                     Divider().overlay(.white.opacity(0.08))
+                    if #available(iOS 27.0, *) {
+                        DirectCapturePanel(language: language, scanArea: scanArea) { text in
+                            overlay.setText(text)
+                        }
+                    } else {
                     HStack(spacing: 14) {
                         BroadcastPicker().frame(width: 54, height: 54)
                         VStack(alignment: .leading, spacing: 5) {
@@ -204,9 +224,11 @@ struct ContentView: View {
                         }
                         Spacer(minLength: 0)
                     }
+                    }
                 }
             }
 
+            if #unavailable(iOS 27.0) {
             capsulePanel {
                 VStack(alignment: .leading, spacing: 12) {
                     sectionHeading("翻译运行状态", icon: "waveform.path.ecg")
@@ -232,6 +254,8 @@ struct ContentView: View {
                             .font(.system(size: 11)).foregroundStyle(.orange)
                     }
                 }
+            }
+
             }
 
             capsulePanel {
