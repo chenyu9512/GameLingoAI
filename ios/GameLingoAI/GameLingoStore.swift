@@ -169,6 +169,28 @@ final class GameLingoStore: ObservableObject {
 
     func clearHistory() { history.removeAll() }
 
+    var profileBackupJSON: String {
+        guard let data = try? JSONEncoder().encode(profiles) else { return "[]" }
+        return String(data: data, encoding: .utf8) ?? "[]"
+    }
+
+    @discardableResult
+    func restoreProfiles(from json: String) -> Bool {
+        guard let data = json.data(using: .utf8),
+              let imported = try? JSONDecoder().decode([GameProfile].self, from: data),
+              !imported.isEmpty,
+              imported.count <= 100 else { return false }
+        let safe = imported.map { profile -> GameProfile in
+            var result = profile
+            result.name = String(profile.name.prefix(70))
+            result.glossary = String(profile.glossary.prefix(10000))
+            return result
+        }
+        profiles = safe
+        activeID = safe[0].id
+        return true
+    }
+
     nonisolated static func glossaryMap(_ text: String) -> [String: String] {
         var result: [String: String] = [:]
         for line in text.components(separatedBy: .newlines) {
