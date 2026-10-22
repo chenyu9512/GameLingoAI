@@ -14,7 +14,10 @@ workflows:
       - name: Compile iOS app and ReplayKit extension (no code signing)
         script: |
           set -e
-          xcodebuild \
+          mkdir -p "$CM_BUILD_DIR/artifacts"
+          BUILD_LOG="$CM_BUILD_DIR/artifacts/xcodebuild.log"
+          echo "Building latest commit: ${CM_COMMIT:-unknown}"
+          if xcodebuild \
             -project "$CM_BUILD_DIR/GameLingoAI.xcodeproj" \
             -scheme GameLingoAI \
             -configuration Release \
@@ -24,7 +27,17 @@ workflows:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build
+            build > "$BUILD_LOG" 2>&1; then
+            echo "Xcode build succeeded"
+            tail -n 30 "$BUILD_LOG"
+          else
+            echo "===== Swift/Xcode compiler diagnostics ====="
+            grep -nE 'error:|warning:|does not conform|failed' "$BUILD_LOG" | tail -n 90 || true
+            echo "===== Final 80 build lines ====="
+            tail -n 80 "$BUILD_LOG"
+            echo "Full build log: artifacts/xcodebuild.log"
+            exit 65
+          fi
       - name: Export unsigned IPA
         script: |
           set -e
@@ -35,5 +48,6 @@ workflows:
           /usr/bin/zip -qr GameLingoAI-Offline-unsigned.ipa Payload
           rm -rf Payload
     artifacts:
+      - artifacts/xcodebuild.log
       - artifacts/GameLingoAI-Offline-unsigned.ipa
       - Build/Logs/Build/*.xcactivitylog
