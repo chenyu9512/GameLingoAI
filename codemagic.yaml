@@ -49,3 +49,52 @@ workflows:
       - artifacts/xcodebuild.log
       - artifacts/GameLingoAI-Offline-unsigned.ipa
       - Build/Logs/Build/*.xcactivitylog
+
+  ios-direct-unsigned:
+    name: GameLingo iOS 27 direct capture - no App Groups or extension
+    instance_type: mac_mini_m2
+    max_build_duration: 40
+    environment:
+      xcode: latest
+    scripts:
+      - name: Generate single-target Xcode project
+        script: |
+          set -e
+          python3 tools/prepare_build.py
+          GAMELINGO_DIRECT_CAPTURE=1 python3 tools/build_xcodeproj.py
+      - name: Compile direct-capture iPhone app
+        script: |
+          set -e
+          mkdir -p "$CM_BUILD_DIR/artifacts"
+          BUILD_LOG="$CM_BUILD_DIR/artifacts/xcodebuild-direct.log"
+          echo "Building commit: ${CM_COMMIT:-unknown}"
+          if xcodebuild \
+            -project "$CM_BUILD_DIR/GameLingoAI.xcodeproj" \
+            -scheme GameLingoAI \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$CM_BUILD_DIR/Build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build > "$BUILD_LOG" 2>&1; then
+            echo "Build succeeded"
+            tail -n 30 "$BUILD_LOG"
+          else
+            echo "===== Compiler diagnostics ====="
+            grep -nE 'error:|warning:|does not conform|failed' "$BUILD_LOG" | tail -n 120 || true
+            tail -n 60 "$BUILD_LOG"
+            exit 65
+          fi
+      - name: Package unsigned IPA for SideStore
+        script: |
+          set -e
+          mkdir -p "$CM_BUILD_DIR/artifacts/Payload"
+          cp -R "$CM_BUILD_DIR/Build/Build/Products/Release-iphoneos/GameLingoAI.app" "$CM_BUILD_DIR/artifacts/Payload/GameLingoAI.app"
+          cd "$CM_BUILD_DIR/artifacts"
+          /usr/bin/zip -qr GameLingoAI-Direct-iOS27-unsigned.ipa Payload
+          rm -rf Payload
+    artifacts:
+      - artifacts/GameLingoAI-Direct-iOS27-unsigned.ipa
+      - artifacts/xcodebuild-direct.log
