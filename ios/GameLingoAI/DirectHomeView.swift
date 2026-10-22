@@ -195,6 +195,14 @@ struct DirectHomeView: View {
             .foregroundStyle(.black)
             .background(mint, in: RoundedRectangle(cornerRadius: 11))
             Text(overlay.status).font(.caption).foregroundStyle(.white.opacity(0.76))
+            HStack {
+                Text("字幕帧输出：\(overlay.outputFrameCount)")
+                    .font(.caption2.monospacedDigit())
+                Spacer()
+                Text(overlay.isActive ? "PiP 已启动" : "PiP 未启动")
+                    .font(.caption2)
+            }
+            .foregroundStyle(.white.opacity(0.63))
         }
     }
 
