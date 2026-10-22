@@ -112,13 +112,20 @@ final class GameLingoStore: ObservableObject {
     private init() {
         let stored = UserDefaults.standard.data(forKey: Self.storageKey)
             .flatMap { try? JSONDecoder().decode(Saved.self, from: $0) }
-        let defaultProfile = GameProfile(name: "默认游戏")
+        // Preserve source-language and scan-area choices from the working 2.2 build.
+        var defaultProfile = GameProfile(name: "默认游戏")
+        defaultProfile.language = UserDefaults.standard.string(forKey: "direct.sourceLanguage") ?? "ja"
+        if UserDefaults.standard.string(forKey: "direct.scanArea") == "full" {
+            defaultProfile.region = .full
+        }
         profiles = stored?.profiles.isEmpty == false ? stored!.profiles : [defaultProfile]
         activeID = stored?.activeID ?? defaultProfile.id
         performance = stored?.performance ?? .balanced
         pipLayout = stored?.pipLayout ?? .standard
         subtitleMode = stored?.subtitleMode ?? .bilingual
-        fontScale = stored?.fontScale ?? 1.0
+        fontScale = stored?.fontScale
+            ?? (UserDefaults.standard.object(forKey: "pip.subtitle.scale") as? Double)
+            ?? 1.0
         history = stored?.history ?? []
         onboardingComplete = stored?.onboardingComplete ?? false
         if !profiles.contains(where: { $0.id == activeID }), let first = profiles.first {
