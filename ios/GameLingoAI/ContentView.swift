@@ -9,7 +9,8 @@ struct ContentView: View {
     @StateObject private var inbox = SubtitleInbox()
     @StateObject private var subtitleWindow = FloatingSubtitleController()
     @State private var preparation: TranslationSession.Configuration?
-    @State private var source: String = "ja"
+    @State private var source: String = SharedSubtitles.sourceLanguage
+    @State private var scanArea: String = SharedSubtitles.scanArea
     @State private var preparationMessage = "未安装语言包时，点击准备按钮让系统请求下载。"
     @State private var capturedImage: PhotosPickerItem?
     @State private var scannedText = ""
@@ -24,6 +25,21 @@ struct ContentView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     title
+                    GroupBox {
+                        HStack(spacing: 10) {
+                            Image(systemName: SharedSubtitles.isGroupAvailable ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")
+                                .foregroundStyle(SharedSubtitles.isGroupAvailable ? .mint : .orange)
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(SharedSubtitles.isGroupAvailable ? "设备端私密翻译" : "字幕共享权限不可用")
+                                    .font(.headline)
+                                Text(SharedSubtitles.isGroupAvailable
+                                     ? "不使用 API、账号或翻译服务器"
+                                     : "当前签名没有 App Groups 权限，实时画中画字幕无法传递。")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                    }
                     GroupBox("一、准备手机本地语言包") {
                         VStack(alignment: .leading, spacing: 10) {
                             Picker("游戏语言", selection: $source) {
@@ -63,7 +79,26 @@ struct ContentView: View {
                             }
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    GroupBox("三、实时翻译") {
+                    GroupBox("三、实时识别状态") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(spacing: 8) {
+                                metric(inbox.telemetry.frames, "采集帧")
+                                metric(inbox.telemetry.scans, "OCR 扫描")
+                                metric(inbox.telemetry.translated, "翻译成功")
+                            }
+                            Label(inbox.telemetry.phase, systemImage: "waveform.path.ecg")
+                                .foregroundStyle(.mint).font(.subheadline.bold())
+                            Text(inbox.telemetry.detail.isEmpty
+                                 ? "开启录屏后，将显示真实识别和翻译状态。"
+                                 : inbox.telemetry.detail)
+                                .font(.caption).foregroundStyle(.secondary)
+                            if inbox.telemetry.failures > 0 {
+                                Text("翻译错误次数：\(inbox.telemetry.failures)")
+                                    .font(.caption).foregroundStyle(.orange)
+                            }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    GroupBox("四、最新中文字幕") {
                         VStack(alignment: .leading, spacing: 10) {
                             Text(inbox.current.translated).font(.title3).fontWeight(.medium)
                             if !inbox.current.original.isEmpty {
@@ -76,7 +111,17 @@ struct ContentView: View {
                             }
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    GroupBox("四、本地游戏专有名词") {
+                    GroupBox("五、扫描范围") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Picker("识别区域", selection: $scanArea) {
+                                Text("对白优先").tag("bottom")
+                                Text("全屏").tag("full")
+                            }.pickerStyle(.segmented)
+                            Text("对白在屏幕上方时切换全屏；通常使用对白优先以减少界面干扰。")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    GroupBox("六、本地游戏专有名词") {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("人名、技能名或菜单短语，整条文字完全匹配时优先按术语表显示。")
                                 .font(.caption).foregroundStyle(.secondary)
@@ -91,7 +136,7 @@ struct ContentView: View {
                             }
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    GroupBox("五、备用：单张截图翻译（无需屏幕广播）") {
+                    GroupBox("七、截图翻译（稳定备用方案）") {
                         VStack(alignment: .leading, spacing: 10) {
                             PhotosPicker(selection: $capturedImage, matching: .images) {
                                 Label("从照片中选择游戏截图", systemImage: "photo")
@@ -113,7 +158,18 @@ struct ContentView: View {
                 }
                 .padding()
             }
-            .navigationTitle("GameLingo 本机翻译")
+            .navigationTitle("GameLingo AI")
+            .groupBoxStyle(GameLingoGroupStyle())
+            .background(
+                LinearGradient(
+                    colors: [Color(red: 0.035, green: 0.055, blue: 0.12),
+                             Color(red: 0.055, green: 0.12, blue: 0.18),
+                             Color(red: 0.025, green: 0.045, blue: 0.09)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                ).ignoresSafeArea()
+            )
+            .onChange(of: source) { _, newValue in SharedSubtitles.setSourceLanguage(newValue) }
+            .onChange(of: scanArea) { _, newValue in SharedSubtitles.setScanArea(newValue) }
             .onAppear {
                 glossaryText = UserDefaults(suiteName: SharedSubtitles.groupID)?
                     .string(forKey: "glossaryText") ?? ""
@@ -145,10 +201,28 @@ struct ContentView: View {
     }
 
     private var title: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("GameLingo AI · Offline").font(.largeTitle).bold()
-            Text("一台 iPhone｜本地 OCR｜Apple 离线翻译").font(.subheadline).foregroundStyle(.secondary)
+        HStack(spacing: 14) {
+            Image(systemName: "gamecontroller.fill")
+                .font(.system(size: 26)).foregroundStyle(.mint)
+                .frame(width: 56, height: 56)
+                .background(.mint.opacity(0.16), in: RoundedRectangle(cornerRadius: 15))
+            VStack(alignment: .leading, spacing: 5) {
+                Text("GameLingo AI").font(.system(size: 28, weight: .bold, design: .rounded))
+                Text("OFFLINE · 随身游戏翻译官")
+                    .font(.caption.bold()).tracking(0.8).foregroundStyle(.secondary)
+            }
+            Spacer()
         }
+    }
+
+    private func metric(_ count: Int, _ title: String) -> some View {
+        VStack(spacing: 5) {
+            Text("\(count)").font(.system(size: 21, weight: .bold, design: .rounded))
+            Text(title).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func recognizeScreenshot(_ item: PhotosPickerItem?) async {
@@ -181,4 +255,21 @@ private struct BroadcastPicker: UIViewRepresentable {
         return picker
     }
     func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
+}
+
+private struct GameLingoGroupStyle: GroupBoxStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            configuration.label.font(.headline).foregroundStyle(.white)
+            configuration.content
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            Color(red: 0.075, green: 0.115, blue: 0.19).opacity(0.94),
+            in: RoundedRectangle(cornerRadius: 18)
+        )
+        .overlay(RoundedRectangle(cornerRadius: 18)
+            .stroke(.white.opacity(0.09), lineWidth: 1))
+    }
 }
