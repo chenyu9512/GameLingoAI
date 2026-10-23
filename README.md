@@ -1,3 +1,26 @@
+# GameLingo Direct 3.2 · 竖屏/横屏自动识别
+
+**2026-10-23 源码更新；等待 Codemagic 和真实 iPhone 验证。** 保留 iOS 27 ScreenCaptureKit、Vision、离线 Translation、双语 PiP、全屏菜单清单与 SideStore 单 App 安装方式。
+
+## 横竖屏适配
+
+- **自动判断**：根据 ScreenCaptureKit 提供的每帧 \`CVPixelBuffer\` 宽高判断竖屏/横屏，不依赖 GameLingo 当前的 UI 方向。手机从竖屏切换到横屏时刷新 OCR 稳定性状态、阻止旧翻译覆盖新画面、取消旧菜单任务。
+- **两套对白扫描框**：每个游戏分别保存竖屏 \`region\` 和横屏 \`landscapeRegion\`，旧配置自动保留竖屏 ROI；横屏首次使用默认下部对白区。进入“游戏配置”切换“竖屏区域 / 横屏区域”，导入同方向截图即可拖动或通过滑块设置。
+- **方向纠正**：默认“自动识别”（假设屏幕流像素已正向排列）；少数游戏把画面横着绘制在固定方向的帧里，可手动尝试 **左转 90° / 右转 90° / 旋转 180°**。Vision 对实时 OCR、全屏菜单 OCR 使用一致的 \`CGImagePropertyOrientation\`，采样去重区域转换回原始像素坐标。
+- **照片与截图**：采用 \`UIImage.imageOrientation\` 到 \`CGImagePropertyOrientation\` 的明确映射，避免从 PhotosPicker 获得的竖屏 JPEG 被误认为横屏；手动方向设置也能覆盖截图识别。绿色 ROI 叠层对应实际等比缩放后的图片范围，而不是整个预览容器。
+- **全屏菜单**：翻译文本块继续记录标准化 Vision 坐标、原文、中文和画面方向。屏幕方向变化时旧扫描结果不会覆盖新任务。旧版本的游戏配置与菜单页面兼容解码。
+- **画中画**：PiP 继续展示原文在上、中文在下的双语字幕；视频小窗按系统行为显示，不强制跟随游戏画面旋转，也不重新申请 App Groups。
+
+## 构建和安装
+
+Codemagic 选择 \`main\` / **\`ios-direct-unsigned\`**，版本为 **3.2.0 Build 6**。Xcode 工程和语法预检都包含新增的 \`GameCaptureGeometry.swift\`；打包成功后使用 SideStore 更新 \`GameLingoAI-Direct-iOS27-unsigned.ipa\`。
+
+建议验收四种场景：（1）竖屏剧情和静态菜单；（2）横屏剧情和静态菜单；（3）游戏过程中旋转手机，验证识别框及时切换；（4）横着显示文字的特殊游戏，尝试手动旋转 90°。如果游戏锁定方向、系统流画面未随手机旋转而旋转，需要手动纠正。没有任何 OCR 能保证识别全部小字或被遮挡内容。
+
+**状态说明**：已提交源码和静态检查；尚未完成本轮的 Swift 全量编译、SideStore 侧载及竖屏/横屏真机测试。
+
+---
+
 # GameLingo Direct 3.1 · 极速双语 + 整屏菜单翻译
 
 **代码提交于 2026-10-23；目前还需要 Codemagic / iPhone 真机验收。**
