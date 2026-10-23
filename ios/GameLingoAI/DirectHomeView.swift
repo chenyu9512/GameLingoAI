@@ -18,6 +18,7 @@ struct DirectHomeView: View {
     @State private var profileDraft = GameProfile(name: "默认游戏")
     @State private var sampleImage: UIImage?
     @State private var regionPhoto: PhotosPickerItem?
+    @State private var editingLayout: GameFrameLayout = .portrait
     @State private var translationPreparation: TranslationSession.Configuration?
     @State private var preparationState = "首次使用请准备系统离线语言包"
     @State private var screenshot: PhotosPickerItem?
@@ -86,7 +87,11 @@ struct DirectHomeView: View {
         .onChange(of: regionPhoto) { _, value in
             Task {
                 guard let data = try? await value?.loadTransferable(type: Data.self) else { return }
-                sampleImage = UIImage(data: data)
+                if let image = UIImage(data: data) {
+                    sampleImage = image
+                    editingLayout = image.size.width >= image.size.height
+                        ? .landscape : .portrait
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(
@@ -149,7 +154,7 @@ struct DirectHomeView: View {
                     Spacer()
                     Text("离线").font(.caption.bold()).foregroundStyle(mint)
                 }
-                Text("上方游戏原文，下方中文翻译。所有 OCR 与翻译在本机进行。")
+                Text("上方游戏原文，下方中文翻译。自动适应竖屏、横屏游戏。所有 OCR 与翻译在本机进行。")
                     .font(.caption).foregroundStyle(.white.opacity(0.73))
             }
 
@@ -165,6 +170,13 @@ struct DirectHomeView: View {
                     Text("原文语言：\(languageLabel(store.activeProfile.language))")
                     Spacer()
                     Text("性能：\(store.performance.title)")
+                }
+                HStack {
+                    Label("当前画面：\(capture.detectedLayout.title)",
+                          systemImage: "iphone.gen3")
+                    Spacer()
+                    Text(capture.screenDimensions)
+                        .font(.caption.monospacedDigit())
                 }
                 .font(.caption).foregroundStyle(.white.opacity(0.67))
                 Button {
@@ -360,6 +372,8 @@ struct DirectHomeView: View {
                 panel {
                     HStack {
                         Text(page.gameName).font(.headline)
+                        Text(page.layout?.title ?? "未记录方向")
+                            .font(.caption2).foregroundStyle(mint)
                         Spacer()
                         Text("\(page.blocks.count) 个文本块")
                             .font(.caption).foregroundStyle(.white.opacity(0.7))
@@ -434,22 +448,45 @@ struct DirectHomeView: View {
             }
 
             panel {
+                sectionTitle("游戏画面方向", icon: "rotate-cw")
+                Picker("方向识别", selection: Binding(
+                    get: { profileDraft.screenRotation },
+                    set: { profileDraft.rotation = $0 })) {
+                    ForEach(GameScreenRotation.allCases) { item in
+                        Text(item.title).tag(item)
+                    }
+                }
+                .pickerStyle(.menu).tint(mint)
+                Text("默认自动：根据屏幕采集帧的宽高判断竖屏或横屏，无须转动手机操作。如果游戏画面横着显示、文字识别方向不对，可尝试左转或右转 90°，保存后立即生效。")
+                    .font(.caption).foregroundStyle(.white.opacity(0.72))
+                Text("当前捕获：\(capture.detectedLayout.title) · \(capture.screenDimensions)")
+                    .font(.caption2).foregroundStyle(mint)
+            }
+
+            panel {
                 sectionTitle("专属 OCR 识别区域", icon: "scope")
-                Text("选择游戏截图，然后拖动绿色识别框定位对白。可用下方滑块精细调整。")
+                Text("竖屏和横屏分别保存识别框。导入对应方向的游戏截图，再拖动绿色框或使用滑块调整。")
                     .font(.caption).foregroundStyle(.white.opacity(0.71))
+                Picker("编辑方向", selection: $editingLayout) {
+                    Text("竖屏区域").tag(GameFrameLayout.portrait)
+                    Text("横屏区域").tag(GameFrameLayout.landscape)
+                }.pickerStyle(.segmented)
                 PhotosPicker(selection: $regionPhoto, matching: .images) {
                     Label("导入游戏截图用于定位", systemImage: "photo")
                 }.buttonStyle(.bordered)
                 regionPreview
-                control("左边界 X", value: $profileDraft.region.x)
-                control("底边界 Y", value: $profileDraft.region.y)
-                control("宽度", value: $profileDraft.region.width, min: 0.12)
-                control("高度", value: $profileDraft.region.height, min: 0.12)
+                control("左边界 X", value: regionBinding(\.x))
+                control("底边界 Y", value: regionBinding(\.y))
+                control("宽度", value: regionBinding(\.width), min: 0.12)
+                control("高度", value: regionBinding(\.height), min: 0.12)
                 HStack {
-                    Button("对白区域") { profileDraft.region = .dialogue }
-                    Button("全屏") { profileDraft.region = .full }
+                    Button("对白区域") {
+                        saveEditingRegion(editingLayout == .portrait
+                            ? .dialogue : .landscapeDialogue)
+                    }
+                    Button("全屏") { saveEditingRegion(.full) }
                 }.buttonStyle(.bordered)
-                Text("坐标以 Vision 的左下角为原点；不要把 PiP 小窗放在识别框里。")
+                Text("当前编辑：\(editingLayout.title)。坐标基于正确方向的画面；系统旋转后自动切换对应识别框。")
                     .font(.caption2).foregroundStyle(.white.opacity(0.65))
             }
 
@@ -777,7 +814,11 @@ struct DirectHomeView: View {
             let ocrLanguage = languageCodes[store.activeProfile.language] ?? "ja-JP"
             request.recognitionLanguages = [ocrLanguage]
             request.usesLanguageCorrection = true
-            try VNImageRequestHandler(cgImage: image).perform([request])
+            let orientation = store.activeProfile.screenRotation == .automatic
+                ? bitmap.imageOrientation.gameVisionOrientation
+                : store.activeProfile.screenRotation.imageOrientation
+            try VNImageRequestHandler(cgImage: image, orientation: orientation)
+                .perform([request])
             let results = (request.results ?? []).compactMap {
                 item -> (String, CGRect, Double)? in
                 guard let best = item.topCandidates(1).first,
@@ -806,7 +847,10 @@ struct DirectHomeView: View {
                     language: store.activeProfile.language,
                     glossary: GameLingoStore.glossaryMap(store.activeProfile.glossary),
                     fingerprint: UInt64(Date().timeIntervalSince1970 * 1000),
-                    ocrMilliseconds: 0, explicitlyRequested: true)
+                    ocrMilliseconds: 0, explicitlyRequested: true,
+                    layout: (orientation == .left || orientation == .right)
+                        ? (image.width >= image.height ? .portrait : .landscape)
+                        : (image.width >= image.height ? .landscape : .portrait))
                 screenshotStatus = "识别了 \(blocks.count) 条；请在“整屏文字”查看逐条中文"
             }
         } catch {
