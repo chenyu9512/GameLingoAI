@@ -31,7 +31,7 @@ checks = {
     "full screen OCR retains detected blocks":
         "private func recognizeFullScreen" in capture
         and "sorted.enumerated()" in capture
-        and "request.regionOfInterest = GameOCRBox.full.rect" in capture,
+        and "request.regionOfInterest = CGRect(x: 0, y: 0, width: 1, height: 1)" in capture,
     "streamed batch menu translation":
         "session.translate(batch: requests)" in menu
         and "response.clientIdentifier" in menu
@@ -39,7 +39,16 @@ checks = {
     "persistent complete menu results": "Saved(pages: savedPages" in menu
         and "GameLingo.Direct.MenuPages.v1" in menu,
     "separate menu and dialogue lanes": "menuQueue" in capture
-        and "scheduleMenuScan(" in capture,
+        and "scheduleMenuScan(" in capture
+        and "private func recognize(_ buffer:" in capture,
+    "only scan game when host app is not visible":
+        "hostAppForeground" in capture and "guard !visible" in capture
+        and "scenePhase" in home,
+    "manual scan permits time to return to game":
+        "manualMenuReadyAt = Date().timeIntervalSince1970 + 2.5" in capture,
+    "menu results are not arbitrarily limited to seven lines":
+        "return sorted.enumerated().map" in capture
+        and "sorted.prefix(7)" not in capture,
     "manual menu scan and scrollable results":
         "capture.requestFullScreenScan()" in home
         and "ForEach(page.blocks)" in home,
