@@ -532,7 +532,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
         else { candidate = text; candidateCount = 1 }
         // Preserve all detected dialogue text, including long and multi-line
         // Japanese scenes. Visible PiP pagination handles the presentation.
-        let needed = snapshot.performance == .fast || recognition.confidence >= 0.78 ? 1 : 2
+        let needed = GameOCRQuality.requiredStableFrames(confidence: recognition.confidence,
+                                                        fastMode: snapshot.performance == .fast)
         guard candidateCount >= needed else { return }
         lastDialogueOCRAt = now
 
@@ -812,8 +813,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         // Refine only when confidence/quality requires it, keeping ordinary
         // readable lines on the fast path.
         if snapshot.performance != .battery,
-           first.text.isEmpty || (snapshot.performance == .balanced
-                                 && first.confidence < 0.66) {
+           (first.text.isEmpty || first.confidence < (snapshot.performance == .fast ? 0.60 : 0.66)) {
             let second = pass(.accurate)
             return second.text.isEmpty ? first : second
         }
