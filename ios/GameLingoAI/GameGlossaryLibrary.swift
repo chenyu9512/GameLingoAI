@@ -107,10 +107,17 @@ final class GameGlossaryLibrary: ObservableObject {
         let entries = result.entries.map {
             GameGlossaryEntry(source: $0.0, target: $0.1)
         }
+        guard packs.count < 30, totalTerms + entries.count <= 100_000 else {
+            throw ImportError.tooManyPacks
+        }
         let pack = GameGlossaryPack(title: result.title, entries: entries)
         packs.append(pack)
         enabledByGame[game, default: []].insert(pack.id)
-        save()
+        guard save() else {
+            packs.removeAll { $0.id == pack.id }
+            enabledByGame[game]?.remove(pack.id)
+            throw ImportError.saveFailed
+        }
         lastNotice = "已导入「\(pack.title)」\(entries.count) 条；重复 \(result.duplicates)，无效 \(result.invalid)。当前游戏已启用。"
         return GameGlossaryImportReport(imported: entries.count,
                                         duplicates: result.duplicates,
@@ -118,7 +125,8 @@ final class GameGlossaryLibrary: ObservableObject {
                                         title: pack.title)
     }
 
-    private func save() {
+    @discardableResult
+    private func save() -> Bool {
         do {
             let location = Self.fileURL
             try FileManager.default.createDirectory(
@@ -127,19 +135,24 @@ final class GameGlossaryLibrary: ObservableObject {
             let data = try JSONEncoder().encode(
                 Database(packs: packs, enabledByGame: enabledByGame))
             try data.write(to: location, options: .atomic)
+            return true
         } catch {
             lastNotice = "词库保存失败：\(error.localizedDescription)"
+            return false
         }
     }
 
     enum ImportError: LocalizedError {
         case tooLarge, invalidEncoding, tooManyEntries, empty
+        case tooManyPacks, saveFailed
         var errorDescription: String? {
             switch self {
             case .tooLarge: return "TXT 文件超过 4 MB，请分成多份"
             case .invalidEncoding: return "TXT 编码应为 UTF-8 或 UTF-16"
             case .tooManyEntries: return "单个词库不能超过 25,000 条"
             case .empty: return "没有找到有效的 日语=中文 词条"
+            case .tooManyPacks: return "最多支持 30 套词库，合计 100,000 条，请删除无用词库"
+            case .saveFailed: return "写入词库文件失败（可能是存储空间不足）"
             }
         }
     }
