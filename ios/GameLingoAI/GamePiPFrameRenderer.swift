@@ -28,6 +28,13 @@ final class GamePiPFrameRenderer: @unchecked Sendable {
     private var pending: Frame?
     private var isWorking = false
     private var pool: CVPixelBufferPool?
+    private struct TextLayout {
+        let lines: [(CTLine, CGFloat)]
+        let fontSize: CGFloat
+    }
+    // Worker-only cache; avoid repeating CoreText line layout on heartbeat
+    // frames, repeated RPG prompts and user-controlled page flips.
+    private var layoutCache: [String: TextLayout] = [:]
     private var lastStamp = 0.0
     private let width = 640
     private let height = 360
@@ -185,32 +192,44 @@ final class GamePiPFrameRenderer: @unchecked Sendable {
         guard !value.isEmpty, rect.height > 8 else { return }
         let name = bold ? "HelveticaNeue-Bold" : "HelveticaNeue"
         let lower = max(12, minimum)
-        var chosen: [(CTLine, CGFloat)] = []
-        var chosenSize = lower
-        let choices = Swift.stride(from: maximum, through: lower, by: -3)
-        for point in choices {
-            let font = CTFontCreateWithName(name as CFString, point, nil)
-            let attr = NSAttributedString(string: value, attributes: [
-                kCTFontAttributeName as NSAttributedString.Key: font,
-                kCTForegroundColorAttributeName as NSAttributedString.Key: color
-            ])
-            let typesetter = CTTypesetterCreateWithAttributedString(attr)
-            var index = 0
-            var lines: [(CTLine, CGFloat)] = []
-            while index < attr.length && lines.count < 48 {
-                let suggested = CTTypesetterSuggestLineBreak(
-                    typesetter, index, Double(max(1, rect.width)))
-                let count = max(1, suggested)
-                let line = CTTypesetterCreateLine(typesetter, CFRangeMake(index, count))
-                let measured = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
-                lines.append((line, measured))
-                index += count
+        let cacheKey = "\(name)|\(Int(maximum))|\(Int(lower))|" +
+                       "\(Int(rect.width))|\(Int(rect.height))|\(value)"
+        let layout: TextLayout
+        if let hit = layoutCache[cacheKey] {
+            layout = hit
+        } else {
+            var chosen: [(CTLine, CGFloat)] = []
+            var chosenSize = lower
+            let choices = Swift.stride(from: maximum, through: lower, by: -3)
+            for point in choices {
+                let font = CTFontCreateWithName(name as CFString, point, nil)
+                let attr = NSAttributedString(string: value, attributes: [
+                    NSAttributedString.Key(rawValue: kCTFontAttributeName as String): font,
+                    NSAttributedString.Key(rawValue: kCTForegroundColorAttributeName as String): color
+                ])
+                let typesetter = CTTypesetterCreateWithAttributedString(attr)
+                var index = 0
+                var lines: [(CTLine, CGFloat)] = []
+                while index < attr.length && lines.count < 48 {
+                    let suggested = CTTypesetterSuggestLineBreak(
+                        typesetter, index, Double(max(1, rect.width)))
+                    let count = max(1, suggested)
+                    let line = CTTypesetterCreateLine(typesetter, CFRangeMake(index, count))
+                    let measured = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+                    lines.append((line, measured))
+                    index += count
+                }
+                let height = CGFloat(lines.count) * point * 1.16
+                chosen = lines
+                chosenSize = point
+                if height <= rect.height - 4 { break }
             }
-            let height = CGFloat(lines.count) * point * 1.16
-            chosen = lines
-            chosenSize = point
-            if height <= rect.height - 4 { break }
+            layout = TextLayout(lines: chosen, fontSize: chosenSize)
+            if layoutCache.count >= 96 { layoutCache.removeAll(keepingCapacity: true) }
+            layoutCache[cacheKey] = layout
         }
+        let chosen = layout.lines
+        let chosenSize = layout.fontSize
         let lineHeight = chosenSize * 1.16
         let total = CGFloat(chosen.count) * lineHeight
         let firstY = CGFloat(height) - rect.minY -
