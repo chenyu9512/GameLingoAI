@@ -458,7 +458,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
                     let additional = supplemental.joined(separator: "\n")
                     recognition = Recognition(
                         text: (recognition.text.isEmpty ? "" : recognition.text + "\n") + additional,
-                        confidence: recognition.confidence,
+                        confidence: recognition.text.isEmpty
+                            ? 0.79 : recognition.confidence,
                         lineCount: recognition.lineCount + supplemental.count,
                         raw: recognition.raw + "\n[底部复检]\n" + additional,
                         rejected: recognition.rejected)
