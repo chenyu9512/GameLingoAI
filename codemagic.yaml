@@ -63,6 +63,8 @@ workflows:
           python3 tools/prepare_build.py
           GAMELINGO_DIRECT_CAPTURE=1 python3 tools/build_xcodeproj.py
           python3 tools/verify_direct_release.py
+          echo "Type-checking Foundation-only OCR quality module"
+          xcrun swiftc -typecheck ios/GameLingoAI/GameOCRQuality.swift
           echo "Checking Swift syntax before full Xcode compilation"
           xcrun swiftc -frontend -parse -D DIRECT_CAPTURE \
             ios/GameLingoAI/GameLingoAIApp.swift \
