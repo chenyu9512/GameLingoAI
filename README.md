@@ -1,3 +1,37 @@
+# GameLingo Direct 3.5 · 成品级游戏翻译体验更新
+
+代码已提交 GitHub（2026-10-23），**尚未在本轮通过 Codemagic Xcode 27.1 完整编译或 iPhone 真机验收**。
+
+## 核心体验
+- **实时首页**：运行状态概览、已翻译数量、OCR 耗时、底部新识别行数；暗色沉浸式卡片、四个导航页。
+- **字幕自动播放**：上一页、暂停/继续、下一页；自动播放停留时间 2～10 秒；可选系统中文语音朗读（默认关闭）。原有双语、中文高密度及菜单分页都保留。
+- **底部强化 OCR**：保留最新帧优先的主识别通道；在屏幕底部 21% 区域加入频率受控的精确补扫，最小文字高度设为 0.003，与主结果按相似度去重。每个游戏可关闭以节省电量。
+- **游戏词库**：导入 TXT（UTF-8 或 UTF-16），每行 `日语=中文` 或 Tab 分隔；支持 `# 词库名称：...` 备注、多词库同时启用、全部开关、按游戏独立启用和统一词条搜索。错误行、重复行及有效词条数都有报告。数据存放于 Application Support，而非巨大 UserDefaults。
+- **词库优先级**：游戏手动术语 > 已启用 TXT 词库（后导入覆盖先导入） > 内置《勇者斗恶龙》 > 通用 RPG > 系统翻译。多个词库并存不需逐条添加。
+- **专用 API 预设**：Microsoft Translator、DeepL、Google Cloud Translation；以及既有 MyMemory、LibreTranslate、通用 JSON REST。选择服务后输入 API Key（部分 Azure 资源需 Region），测试成功才启用；密钥仅保存在 Keychain。可设置本机每日字符保护额度。
+- **默认完全本机**：系统 Translation、Vision；不随 IPA 内置语言包，按需下载；在线服务绝不自动启用，系统 PiP 仍属于受 iOS 管理的视频小窗。
+
+## 操作指南
+1. Codemagic `main` → `ios-direct-unsigned`；目标版本 `3.5.0 / Build 10`。安装 `GameLingoAI-Direct-iOS27-unsigned.ipa` 需在构建成功后通过 SideStore 签名。
+2. 首页准备本机语言包，开启 PiP，并在游戏中启动完整屏幕采集。
+3. 游戏配置已分为 **识别 / 词库 / 翻译 / 偏好** 四个区。识别页启用底部补扫并调整横竖屏区域；词库页一键启用 DQ 和 TXT；翻译页设置可选 API；偏好页控制多行双语、自动播放、语音朗读和备份。
+4. 示例 TXT 模板：`examples/游戏术语词库模板.txt`。导入成功后自动为当前游戏启用，也可以随时关闭或同时启用多套。
+5. 发生日语乱码时，首页运行诊断可查看原始 OCR、有效文字及最终中文；在整屏文字页查看所有已检测的静态菜单文本块。
+
+## 免费额度并非无限制
+- MyMemory 公共免费额度较小，不适合高强度持续游戏。
+- Azure Translator F0 的官方配额根据所建资源及账户条件生效；部分资源需要 Region。
+- 新 DeepL Developer API 是累计试用 100 万字符、**不按月重置**；旧 Free 计划条件不同。
+- Google Cloud Translation 有免费月度额度，但需要开通项目、API 和计费，超出时可能收费。必须自行设配额和预算。
+- 本机字符数仅是保护措施，**不是服务商账单查询**；没有提供实际 API Key，本轮无法验证三家服务的真实连接。
+
+## 构建与验收状态
+- 已改动并纳入自动工程生成：GameGlossaryTXTParser.swift、GameGlossaryLibrary.swift、GameGlossaryLibraryView.swift。
+- Codemagic 会在 Xcode 编译前运行 TXT 解析类型检查和示例测试，以及旧的 OCR 质量测试。
+- 代码审查不能证明真机稳定：必须使用 SideStore 安装并检查竖横屏、PiP、TTS、TXT 导入及在线凭据。若失败请提供 Codemagic `compiler-errors-direct.txt`。
+- 本轮完整检查记录见 `docs/RELEASE_AUDIT_3_5.md`。
+
+---
 # GameLingo Direct 3.4 · 极速日语 OCR / 多行双语
 
 **2026-10-23 GitHub 源码已更新，等待本次 Codemagic 编译和 iPhone 真机确认。**
