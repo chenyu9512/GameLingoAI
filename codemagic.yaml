@@ -65,6 +65,8 @@ workflows:
           python3 tools/verify_direct_release.py
           echo "Type-checking Foundation-only OCR quality module"
           xcrun swiftc -typecheck ios/GameLingoAI/GameOCRQuality.swift
+          echo "Typechecking off-main CoreText video renderer on the build Mac"
+          xcrun swiftc -typecheck ios/GameLingoAI/GamePiPFrameRenderer.swift
           xcrun swiftc -typecheck ios/GameLingoAI/GameGlossaryTXTParser.swift
           echo "Testing TXT glossary UTF-8, UTF-16 and collision handling"
           xcrun swiftc ios/GameLingoAI/GameGlossaryTXTParser.swift tests/glossary_txt_smoke.swift -o /tmp/gamelingo-glossary-smoke
