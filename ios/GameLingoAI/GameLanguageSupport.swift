@@ -4,6 +4,9 @@ import Vision
 /// OCR language hints. Downloading Apple Translation languages does not
 /// download Vision models, and the set supported by the OS can be different.
 enum GameLanguageSupport {
+    private static let supportedLock = NSLock()
+    private static var supportedByLevel: [String: [String]] = [:]
+
     static func ocrHint(for language: String) -> String {
         let trimmed = language.trimmingCharacters(in: .whitespacesAndNewlines)
         let prefix = trimmed.components(separatedBy: "-").first?.lowercased() ?? trimmed
@@ -22,7 +25,20 @@ enum GameLanguageSupport {
     /// as an unrelated fallback.
     static func setup(_ request: VNRecognizeTextRequest, language: String) throws {
         let wanted = ocrHint(for: language)
-        let available = try request.supportedRecognitionLanguages()
+        let key = request.recognitionLevel == .fast ? "fast" : "accurate"
+        supportedLock.lock()
+        let cached = supportedByLevel[key]
+        supportedLock.unlock()
+        let available: [String]
+        if let cached {
+            available = cached
+        } else {
+            let detected = try request.supportedRecognitionLanguages()
+            supportedLock.lock()
+            supportedByLevel[key] = detected
+            supportedLock.unlock()
+            available = detected
+        }
         let wantedBase = wanted.components(separatedBy: "-").first ?? wanted
         if available.contains(wanted) {
             request.recognitionLanguages = [wanted]
