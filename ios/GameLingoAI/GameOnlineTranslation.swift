@@ -3,7 +3,7 @@ import Translation
 import Security
 
 enum GameTranslationProvider: String, CaseIterable, Codable, Identifiable {
-    case offline, myMemory, libreTranslate, customJSON
+    case offline, myMemory, libreTranslate, customJSON, azure, deepL, google
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -11,6 +11,9 @@ enum GameTranslationProvider: String, CaseIterable, Codable, Identifiable {
         case .myMemory: return "MyMemory 免费 API"
         case .libreTranslate: return "LibreTranslate 兼容服务"
         case .customJSON: return "自定义 JSON REST API"
+        case .azure: return "Microsoft Translator (Azure)"
+        case .deepL: return "DeepL API"
+        case .google: return "Google Cloud Translation"
         }
     }
     var sendsDataOnline: Bool { self != .offline }
@@ -25,6 +28,8 @@ struct GameTranslationEndpoint: Codable, Equatable {
     var resultPath: String = "translatedText"
     var apiKeyHeader: String = "Authorization"
     var apiKeyPrefix: String = "Bearer "
+    var region: String? = nil
+    var dailyCharacterLimit: Int? = nil
 
     func validatedURL() throws -> URL {
         let address = url.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -112,6 +117,23 @@ final class GameOnlineTranslator: ObservableObject {
     private let timeout: TimeInterval = 14
     private let anonymousDailyLimit = 4900
 
+    func usedCharacters(for provider: GameTranslationProvider) -> Int {
+        let day = ISO8601DateFormatter().string(from: Date()).prefix(10)
+        return UserDefaults.standard.integer(forKey: "GameLingo.API.Used.\(provider.rawValue).\(day)")
+    }
+
+    private func reserve(_ length: Int, provider: GameTranslationProvider,
+                         limit: Int?) throws {
+        guard let limit, limit > 0 else { return }
+        let day = ISO8601DateFormatter().string(from: Date()).prefix(10)
+        let key = "GameLingo.API.Used.\(provider.rawValue).\(day)"
+        let used = UserDefaults.standard.integer(forKey: key)
+        guard used + length <= limit else {
+            throw GameOnlineTranslationError.quotaExceeded
+        }
+        UserDefaults.standard.set(used + length, forKey: key)
+    }
+
     private init() {}
 
     func test(provider: GameTranslationProvider,
@@ -176,6 +198,7 @@ final class GameOnlineTranslator: ObservableObject {
     private func onlinePiece(_ text: String, source: String,
                              provider: GameTranslationProvider,
                              endpoint: GameTranslationEndpoint) async throws -> String {
+        try reserve(text.count, provider: provider, limit: endpoint.dailyCharacterLimit)
         switch provider {
         case .offline:
             throw GameOnlineTranslationError.invalidEndpoint
@@ -201,6 +224,72 @@ final class GameOnlineTranslator: ObservableObject {
                   !translated.uppercased().contains("MYMEMORY WARNING"),
                   !translated.uppercased().contains("QUOTA EXCEEDED")
             else { throw GameOnlineTranslationError.quotaExceeded }
+            return translated
+        case .azure:
+            let secret = GameAPIKeychain.read(for: provider)
+            guard !secret.isEmpty else { throw GameOnlineTranslationError.missingKey }
+            var components = URLComponents(string:
+                "https://api.cognitive.microsofttranslator.com/translate")!
+            components.queryItems = [
+                URLQueryItem(name: "api-version", value: "3.0"),
+                URLQueryItem(name: "from", value: source),
+                URLQueryItem(name: "to", value: "zh-Hans")
+            ]
+            var request = URLRequest(url: components.url!)
+            request.httpMethod = "POST"
+            request.timeoutInterval = timeout
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(secret, forHTTPHeaderField: "Ocp-Apim-Subscription-Key")
+            if let region = endpoint.region?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !region.isEmpty {
+                request.setValue(region, forHTTPHeaderField: "Ocp-Apim-Subscription-Region")
+            }
+            request.httpBody = try JSONSerialization.data(withJSONObject: [["Text": text]])
+            let data = try await requestData(request)
+            guard let array = try JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                  let first = array.first,
+                  let translations = first["translations"] as? [[String: Any]],
+                  let translated = translations.first?["text"] as? String,
+                  !translated.isEmpty else { throw GameOnlineTranslationError.invalidResponse }
+            return translated
+        case .deepL:
+            let secret = GameAPIKeychain.read(for: provider)
+            guard !secret.isEmpty else { throw GameOnlineTranslationError.missingKey }
+            // Legacy :fx API Free keys use the api-free host. Current
+            // Developer plan keys use the production api.deepl.com endpoint.
+            let host = secret.hasSuffix(":fx") ? "api-free.deepl.com" : "api.deepl.com"
+            var request = URLRequest(url: URL(string: "https://\(host)/v2/translate")!)
+            request.httpMethod = "POST"
+            request.timeoutInterval = timeout
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("DeepL-Auth-Key " + secret, forHTTPHeaderField: "Authorization")
+            let body: [String: Any] = ["text": [text],
+                                       "source_lang": source.uppercased(),
+                                       "target_lang": "ZH-HANS"]
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let json = try await requestJSON(request)
+            guard let translations = json["translations"] as? [[String: Any]],
+                  let translated = translations.first?["text"] as? String,
+                  !translated.isEmpty else { throw GameOnlineTranslationError.invalidResponse }
+            return translated
+        case .google:
+            let secret = GameAPIKeychain.read(for: provider)
+            guard !secret.isEmpty else { throw GameOnlineTranslationError.missingKey }
+            var url = URLComponents(string:
+                "https://translation.googleapis.com/language/translate/v2")!
+            url.queryItems = [URLQueryItem(name: "key", value: secret)]
+            var request = URLRequest(url: url.url!)
+            request.httpMethod = "POST"
+            request.timeoutInterval = timeout
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let body: [String: Any] = ["q": text, "source": source,
+                                       "target": "zh-CN", "format": "text"]
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let json = try await requestJSON(request)
+            guard let outer = json["data"] as? [String: Any],
+                  let list = outer["translations"] as? [[String: Any]],
+                  let translated = list.first?["translatedText"] as? String,
+                  !translated.isEmpty else { throw GameOnlineTranslationError.invalidResponse }
             return translated
         case .libreTranslate, .customJSON:
             let address = try endpoint.validatedURL()
@@ -240,7 +329,7 @@ final class GameOnlineTranslator: ObservableObject {
         }
     }
 
-    private func requestJSON(_ req: URLRequest) async throws -> [String: Any] {
+    private func requestData(_ req: URLRequest) async throws -> Data {
         let (data, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse else {
             throw GameOnlineTranslationError.invalidResponse
@@ -248,8 +337,15 @@ final class GameOnlineTranslator: ObservableObject {
         guard (200..<300).contains(http.statusCode) else {
             throw GameOnlineTranslationError.http(http.statusCode)
         }
-        guard data.count < 1_000_000,
-              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard data.count < 1_000_000 else {
+            throw GameOnlineTranslationError.invalidResponse
+        }
+        return data
+    }
+
+    private func requestJSON(_ req: URLRequest) async throws -> [String: Any] {
+        let data = try await requestData(req)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { throw GameOnlineTranslationError.invalidResponse }
         return json
     }
