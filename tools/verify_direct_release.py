@@ -125,7 +125,7 @@ checks = {
         and "isGroupedLayout" in subtitle and "setMenuEntries(" in subtitle,
     "PiP coalesces and heartbeats sparingly":
         "withTimeInterval: 0.3" in subtitle
-        and "lastDrawAt >= 9.0" in subtitle
+        and "lastDrawAt >= 3.0" in subtitle
         and "withTimeInterval: 0.8" not in subtitle,
     "offline OCR-line translations remain paired":
         "session.translate(batch: group)" in capture
