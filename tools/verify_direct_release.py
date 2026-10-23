@@ -68,7 +68,10 @@ checks = {
     "per-game override glossary first": "mergedTerms.merge(GameLingoStore.glossaryMap" in capture
         and "profile.dragonQuestEnabled" in capture,
     "offline and online cache separated": "profile.provider.rawValue + \"|\"" in capture
-        and "provider: provider" in menu,
+        and "provider: provider" in menu and "endpointID: endpointID" in menu,
+    "screenshot imports never trigger online API":
+        "overrideProvider: .offline" in home
+        and "overrideProvider ?? GameLingoStore.shared.provider" in menu,
     "automatic portrait and landscape frame detection":
         "renderedWidth >= renderedHeight" in geometry
         and "GameCaptureGeometry(" in capture
