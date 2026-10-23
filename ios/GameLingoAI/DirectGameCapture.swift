@@ -28,6 +28,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
     @Published private(set) var lastOCRRaw = ""
     @Published private(set) var lastOCRAccepted = ""
     @Published private(set) var rejectedOCRLines = 0
+    @Published private(set) var bottomLines = 0
+    @Published private(set) var bottomScanMs = 0
     @Published private(set) var lastOCRCandidates = 0
     @Published private(set) var ocrElapsedMs = 0
     @Published private(set) var translationElapsedMs = 0
@@ -50,6 +52,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         var performance: GamePerformance
         var provider: GameTranslationProvider
         var endpoint: GameTranslationEndpoint
+        var bottomScan: Bool
 
         static let initial = Snapshot(profileID: UUID(), name: "默认游戏", language: "ja",
                                       portraitROI: GameOCRBox.dialogue.rect,
@@ -57,7 +60,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
                                       rotation: .automatic,
                                       excluded: nil, glossary: [:],
                                       performance: .balanced,
-                                      provider: .offline, endpoint: GameTranslationEndpoint())
+                                      provider: .offline, endpoint: GameTranslationEndpoint(),
+                                      bottomScan: true)
     }
 
     private struct Recognition {
@@ -87,6 +91,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
     private var lastAcceptedAt: TimeInterval = 0
     private var lastFingerprint: UInt64 = 0
     private var lastOCRAt: TimeInterval = 0
+    private var lastBottomAt: TimeInterval = 0
+    private var lastBottomText = ""
+    private var lastBottomDuration = 0
     // Only touched on captureQueue: rotation/dimensions changes reset OCR
     // stabilisation without confusing previous frames with new geometry.
     private var lastFrameGeometry = ""
@@ -145,7 +152,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
                                 excluded: profile.excluded?.rect,
                                 glossary: mergedTerms, performance: performance,
                                 provider: GameLingoStore.shared.provider,
-                                endpoint: GameLingoStore.shared.endpoint)
+                                endpoint: GameLingoStore.shared.endpoint,
+                                bottomScan: profile.bottomScanEnabled)
         gate.lock()
         let changed = config != snapshot
         if changed {
@@ -169,6 +177,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
         ocrQueue.async { [weak self] in
             self?.lastFingerprint = 0
             self?.lastFrameGeometry = ""
+            self?.lastBottomAt = 0
+            self?.lastBottomText = ""
             self?.candidate = ""
             self?.candidateCount = 0
         }
@@ -378,6 +388,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
             lastFrameGeometry = geometry.identity
             lastFingerprint = 0
             lastOCRAt = 0
+            lastBottomAt = 0
+            lastBottomText = ""
             candidate = ""
             candidateCount = 0
             gate.lock()
@@ -405,7 +417,10 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let region = geometry.layout == .portrait
             ? snapshot.portraitROI : snapshot.landscapeROI
         scheduleMenuScan(buffer, snapshot: snapshot, geometry: geometry, now: now)
+        let bottomRegion = CGRect(x: 0, y: 0, width: 1, height: 0.21)
         let fingerprint = frameFingerprint(buffer, region: geometry.rawRegion(for: region))
+            ^ (snapshot.bottomScan
+                ? frameFingerprint(buffer, region: geometry.rawRegion(for: bottomRegion)) : 0)
         let staticScene = fingerprint != 0 && fingerprint == lastFingerprint
         // Still recheck static frames periodically: failed translations may retry,
         // and the same visual frame may need new state after UI changes.
@@ -421,8 +436,35 @@ final class DirectGameCapture: NSObject, ObservableObject,
         lastOCRAt = now
 
         let startedAt = CFAbsoluteTimeGetCurrent()
-        let recognition = recognize(buffer, using: snapshot,
+        var recognition = recognize(buffer, using: snapshot,
                                     geometry: geometry, region: region)
+        if snapshot.bottomScan {
+            let interval = snapshot.performance == .battery ? 4.0 : 1.7
+            if now - lastBottomAt >= interval || lastBottomAt == 0 {
+                lastBottomAt = now
+                let started = CFAbsoluteTimeGetCurrent()
+                lastBottomText = recognizeBottom(buffer, using: snapshot,
+                                                geometry: geometry)
+                lastBottomDuration = Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
+            }
+            if !lastBottomText.isEmpty && now - lastBottomAt <= 5.0 {
+                let primary = recognition.text.components(separatedBy: "\n")
+                let supplemental = lastBottomText.components(separatedBy: "\n").filter { line in
+                    !line.isEmpty && !primary.contains(where: {
+                        GameOCRQuality.isSimilar($0, line)
+                    })
+                }
+                if !supplemental.isEmpty {
+                    let additional = supplemental.joined(separator: "\n")
+                    recognition = Recognition(
+                        text: (recognition.text.isEmpty ? "" : recognition.text + "\n") + additional,
+                        confidence: recognition.confidence,
+                        lineCount: recognition.lineCount + supplemental.count,
+                        raw: recognition.raw + "\n[底部复检]\n" + additional,
+                        rejected: recognition.rejected)
+                }
+            }
+        }
         let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000)
         DispatchQueue.main.async {
             guard self.isCurrent(frame.revision) else { return }
@@ -430,6 +472,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
             self.lastOCRAccepted = recognition.text
             self.lastOCRCandidates = recognition.lineCount
             self.rejectedOCRLines = recognition.rejected
+            self.bottomLines = self.lastBottomText.isEmpty ? 0 :
+                self.lastBottomText.components(separatedBy: "\n").count
+            self.bottomScanMs = self.lastBottomDuration
             self.frames += 1
             self.scans += 1
             self.lastFrameAt = Date()
@@ -642,6 +687,35 @@ final class DirectGameCapture: NSObject, ObservableObject,
         return hash
     }
 
+    /// Lower 21% of entire frame; includes bottom edge missed by legacy ROIs.
+    private func recognizeBottom(_ buffer: CVPixelBuffer, using snapshot: Snapshot,
+                                 geometry: GameCaptureGeometry) -> String {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.minimumTextHeight = 0.003
+        request.usesLanguageCorrection = true
+        request.regionOfInterest = CGRect(x: 0, y: 0, width: 1, height: 0.21)
+        do {
+            try GameLanguageSupport.setup(request, language: snapshot.language)
+            try VNImageRequestHandler(cvPixelBuffer: buffer,
+                                      orientation: geometry.imageOrientation,
+                                      options: [:]).perform([request])
+            let candidates: [(String, CGRect)] = (request.results ?? []).compactMap { obs in
+                if let excluded = snapshot.excluded,
+                   excluded.contains(CGPoint(x: obs.boundingBox.midX,
+                                             y: obs.boundingBox.midY)) { return nil }
+                guard let best = GameOCRQuality.best(
+                    from: obs.topCandidates(3).map { ($0.string, $0.confidence) },
+                    language: snapshot.language) else { return nil }
+                return (best.text, obs.boundingBox)
+            }
+            return candidates.sorted { a, b in
+                abs(a.1.midY - b.1.midY) < 0.025
+                    ? a.1.minX < b.1.minX : a.1.midY > b.1.midY
+            }.map(\.0).joined(separator: "\n")
+        } catch { return "" }
+    }
+
     private func recognize(_ buffer: CVPixelBuffer, using snapshot: Snapshot,
                            geometry: GameCaptureGeometry, region: CGRect) -> Recognition {
         func pass(_ level: VNRequestTextRecognitionLevel) -> Recognition {
@@ -835,6 +909,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         Last frame: \(stamp)
         OCR scans: \(scans) / reused frames: \(ignoredFrames)
         OCR candidates: \(lastOCRCandidates), rejected lines: \(rejectedOCRLines)
+        Bottom OCR: \(bottomLines) lines / \(bottomScanMs)ms
         Raw OCR: \(lastOCRRaw)
         Validated OCR: \(lastOCRAccepted)
         Translations: \(translatedCount)
