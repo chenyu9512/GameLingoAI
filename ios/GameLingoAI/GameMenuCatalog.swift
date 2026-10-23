@@ -109,13 +109,20 @@ final class GameMenuCatalog: ObservableObject {
         let previousSignature = savedPages.first.map {
             $0.blocks.map { $0.original }.joined(separator: "\n")
         }
-        if newFingerprint == fingerprint || (previousSignature == signature
-            && savedPages.first?.profileID == profileID) {
-            status = "画面文字未改变，沿用已翻译的菜单"
-            return
+        let unchanged = (newFingerprint == fingerprint
+            || previousSignature == signature)
+            && savedPages.first?.profileID == profileID
+        if unchanged {
+            if isTranslating || savedPages.first?.blocks.allSatisfy({ $0.chinese != nil }) == true {
+                status = "画面文字未改变，沿用已翻译的菜单"
+                return
+            }
+            // A previous offline translation may have failed. Rescanning the
+            // same page must retry outstanding blocks instead of deadlocking.
         }
         fingerprint = newFingerprint
         revision += 1
+        lastError = ""
         let token = revision
         job?.cancel()
 
@@ -125,7 +132,8 @@ final class GameMenuCatalog: ObservableObject {
                                source: prepared[i].original)
             prepared[i].chinese = glossary[prepared[i].original] ?? cache[key]
         }
-        var page = GameMenuPage(profileID: profileID, gameName: gameName,
+        let pageID = unchanged ? (savedPages.first?.id ?? UUID()) : UUID()
+        var page = GameMenuPage(id: pageID, profileID: profileID, gameName: gameName,
                                 language: language, scannedAt: Date(), blocks: prepared)
         savedPages.removeAll { $0.profileID == profileID
             && $0.blocks.map { $0.original } == prepared.map { $0.original } }
