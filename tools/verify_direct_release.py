@@ -21,6 +21,7 @@ geometry = read("ios/GameLingoAI/GameCaptureGeometry.swift")
 menu = read("ios/GameLingoAI/GameMenuCatalog.swift")
 online = read("ios/GameLingoAI/GameOnlineTranslation.swift")
 languages = read("ios/GameLingoAI/GameLanguageSupport.swift")
+quality = read("ios/GameLingoAI/GameOCRQuality.swift")
 rpg = read("ios/GameLingoAI/GameRPGDictionary.swift")
 translation_settings = read("ios/GameLingoAI/GameTranslationSettingsView.swift")
 rpg_settings = read("ios/GameLingoAI/GameRPGDictionaryView.swift")
@@ -34,6 +35,38 @@ checks = {
     and "GameLingoStore.swift" in project,
     "orientation geometry compiled": "GameCaptureGeometry.swift" in generator
     and "GameCaptureGeometry.swift" in project,
+    "quality filter included in target": "GameOCRQuality.swift" in generator
+        and "GameOCRQuality.swift" in project
+        and "GameOCRQuality.best(" in capture,
+    "latest-frame producer does not run OCR":
+        "GameLingo.frames" in capture
+        and "GameLingo.latestFrameOCR" in capture
+        and "pendingFrame = CapturedFrame(" in capture
+        and "private func drainLatestFrames()" in capture
+        and "pendingFrame = nil" in capture,
+    "no fixed four-line or 190-character rejection":
+        "sorted.prefix(4)" not in capture
+        and "text.count <= 190" not in capture
+        and "let merged = sorted.map" in capture,
+    "three additional PiP layout choices":
+        "multiBilingual" in models and "denseChinese" in models
+        and "menuPages" in models
+        and "isGroupedLayout" in subtitle and "setMenuEntries(" in subtitle,
+    "PiP coalesces and heartbeats sparingly":
+        "withTimeInterval: 0.3" in subtitle
+        and "lastDrawAt >= 9.0" in subtitle
+        and "withTimeInterval: 0.8" not in subtitle,
+    "offline OCR-line translations remain paired":
+        "session.translate(batch: group)" in capture
+        and "translated[index] = response.targetText" in capture
+        and "recentPairs.append(SubtitlePage(original: source, translated: target))" in subtitle,
+    "static menu caches normalized blocks":
+        "lastCacheHits" in menu and "changedBlocks" in menu
+        and "private func normalized(" in menu
+        and "self.translatedCount % 12" in menu,
+    "OCR raw-versus-validated diagnostics":
+        "lastOCRRaw" in capture and "lastOCRAccepted" in capture
+        and "lastOCRRaw.prefix" in home and "lastOCRAccepted.prefix" in home,
     "all new components included in iOS direct target":
         all(name in generator and name in project for name in [
             "GameOnlineTranslation.swift", "GameLanguageSupport.swift",
@@ -155,8 +188,8 @@ checks = {
         "'CODE_SIGN_ENTITLEMENTS':'' if DIRECT" in generator,
     "full-display background capture declaration":
         "screen-capture" in plist.get("UIBackgroundModes", []),
-    "v3.3.1 release version":
-        "'MARKETING_VERSION':'3.3.1' if DIRECT" in generator,
+    "v3.4 release version":
+        "'MARKETING_VERSION':'3.4.0' if DIRECT" in generator,
     "direct PiP preview retained": "FloatingSubtitlePreview" in home,
     "offline Translation session": "TranslationSession(" in online
     and "installedSource:" in online
@@ -166,4 +199,4 @@ for label, valid in checks.items():
     print(("OK  " if valid else "FAIL") + label)
 if not all(checks.values()):
     raise SystemExit("Direct release preflight failed")
-print("PASS: GameLingo Direct 3.3.1 one-tap Dragon Quest pack, bilingual pipeline and SideStore preflight")
+print("PASS: GameLingo Direct 3.4 latest-frame OCR, Japanese quality, denser PiP and incremental menus")
