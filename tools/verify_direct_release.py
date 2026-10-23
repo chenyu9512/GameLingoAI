@@ -22,6 +22,9 @@ menu = read("ios/GameLingoAI/GameMenuCatalog.swift")
 online = read("ios/GameLingoAI/GameOnlineTranslation.swift")
 languages = read("ios/GameLingoAI/GameLanguageSupport.swift")
 quality = read("ios/GameLingoAI/GameOCRQuality.swift")
+txt_parser = read("ios/GameLingoAI/GameGlossaryTXTParser.swift")
+txt_library = read("ios/GameLingoAI/GameGlossaryLibrary.swift")
+txt_view = read("ios/GameLingoAI/GameGlossaryLibraryView.swift")
 rpg = read("ios/GameLingoAI/GameRPGDictionary.swift")
 translation_settings = read("ios/GameLingoAI/GameTranslationSettingsView.swift")
 rpg_settings = read("ios/GameLingoAI/GameRPGDictionaryView.swift")
@@ -35,6 +38,46 @@ checks = {
     and "GameLingoStore.swift" in project,
     "orientation geometry compiled": "GameCaptureGeometry.swift" in generator
     and "GameCaptureGeometry.swift" in project,
+    "3.5 TXT glossary files in direct target":
+        all(name in generator and name in project for name in [
+            "GameGlossaryTXTParser.swift", "GameGlossaryLibrary.swift",
+            "GameGlossaryLibraryView.swift"]),
+    "TXT encoding, format and duplicate validation":
+        "String(data: data, encoding: .utf16)" in txt_parser
+        and "ordered.compactMap" in txt_parser
+        and "ParseError.tooLarge" in txt_parser
+        and "duplicates += 1" in txt_parser,
+    "multi-pack one-tap and private persistence":
+        "applicationSupportDirectory" in txt_library
+        and "func setAll(" in txt_library
+        and "func activeDictionary(" in txt_library
+        and ".fileImporter(" in txt_view,
+    "imported terminology used in same live translator pipeline":
+        "GameGlossaryLibrary.shared.activeDictionary(game: profile.id)" in rpg
+        and "GameRPGDictionary.glossary(for: profile)" in capture,
+    "bottom-screen OCR and UI":
+        "private func recognizeBottom(" in capture
+        and "request.minimumTextHeight = 0.003" in capture
+        and "profile.bottomScanEnabled" in capture
+        and "屏幕底部强化识别" in home,
+    "automatic subtitle paging, optional speech and user controls":
+        "func configurePlayback(" in subtitle
+        and "func togglePlayback()" in subtitle
+        and "AVSpeechSynthesizer()" in subtitle
+        and "overlay.nextPage()" in home
+        and "$store.playbackSeconds" in home,
+    "new key-only provider adapters":
+        "case .azure:" in online and "Ocp-Apim-Subscription-Key" in online
+        and "case .deepL:" in online and "DeepL-Auth-Key" in online
+        and "case .google:" in online and "translation.googleapis.com" in online,
+    "provider quota protection and test-before-enable":
+        "dailyCharacterLimit" in online and "func reserve(" in online
+        and "await tester.test(" in translation_settings
+        and "store.provider = choice" in translation_settings,
+    "cleaner consumer UI and settings navigation":
+        "private var statusDashboard:" in home
+        and "ConfigSection.allCases" in home
+        and "DIRECT 3.5" in home,
     "quality filter included in target": "GameOCRQuality.swift" in generator
         and "GameOCRQuality.swift" in project
         and "GameOCRQuality.best(" in capture,
@@ -188,8 +231,8 @@ checks = {
         "'CODE_SIGN_ENTITLEMENTS':'' if DIRECT" in generator,
     "full-display background capture declaration":
         "screen-capture" in plist.get("UIBackgroundModes", []),
-    "v3.4 release version":
-        "'MARKETING_VERSION':'3.4.0' if DIRECT" in generator,
+    "v3.5 release version":
+        "'MARKETING_VERSION':'3.5.0' if DIRECT" in generator,
     "direct PiP preview retained": "FloatingSubtitlePreview" in home,
     "offline Translation session": "TranslationSession(" in online
     and "installedSource:" in online
@@ -199,4 +242,4 @@ for label, valid in checks.items():
     print(("OK  " if valid else "FAIL") + label)
 if not all(checks.values()):
     raise SystemExit("Direct release preflight failed")
-print("PASS: GameLingo Direct 3.4 latest-frame OCR, Japanese quality, denser PiP and incremental menus")
+print("PASS: GameLingo Direct 3.5 bottom OCR, autoplay, TXT packs, key-first APIs and UI preflight")
