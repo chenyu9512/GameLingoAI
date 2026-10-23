@@ -39,7 +39,7 @@ def obj(key, isa, **props):
     objects[key]=dict(isa=isa,**props)
     return Raw(i)
 
-src_app=(['ios/GameLingoAI/GameLingoAIApp.swift','ios/GameLingoAI/GameLingoStore.swift','ios/GameLingoAI/DirectHomeView.swift','ios/GameLingoAI/FloatingSubtitleController.swift','ios/GameLingoAI/DirectGameCapture.swift'] if DIRECT else ['ios/GameLingoAI/GameLingoAIApp.swift','ios/GameLingoAI/ContentView.swift','ios/GameLingoAI/SubtitleInbox.swift','ios/GameLingoAI/FloatingSubtitleController.swift'])
+src_app=(['ios/GameLingoAI/GameLingoAIApp.swift','ios/GameLingoAI/GameLingoStore.swift','ios/GameLingoAI/GameMenuCatalog.swift','ios/GameLingoAI/DirectHomeView.swift','ios/GameLingoAI/FloatingSubtitleController.swift','ios/GameLingoAI/DirectGameCapture.swift'] if DIRECT else ['ios/GameLingoAI/GameLingoAIApp.swift','ios/GameLingoAI/ContentView.swift','ios/GameLingoAI/SubtitleInbox.swift','ios/GameLingoAI/FloatingSubtitleController.swift'])
 src_ext=['ios/BroadcastUpload/SampleHandler.swift']
 src_shared=['ios/Shared/SubtitleMessage.swift','ios/Shared/BuildIdentity.swift']
 plists=['ios/GameLingoAI/Info.plist','ios/BroadcastUpload/Info.plist','ios/GameLingoAI/InfoDirect.plist']
@@ -81,7 +81,7 @@ common={
  'SWIFT_VERSION':'5.9','IPHONEOS_DEPLOYMENT_TARGET':'27.0' if DIRECT else '26.0',
  'SDKROOT':'iphoneos','CODE_SIGN_STYLE':'Automatic',
  'TARGETED_DEVICE_FAMILY':'1,2', 'SUPPORTS_MACCATALYST':'NO',
- 'MARKETING_VERSION':'3.0.0' if DIRECT else '2.0.0','CURRENT_PROJECT_VERSION':'4' if DIRECT else '1',
+ 'MARKETING_VERSION':'3.1.0' if DIRECT else '2.0.0','CURRENT_PROJECT_VERSION':'5' if DIRECT else '1',
  'GENERATE_INFOPLIST_FILE':'NO', 'SWIFT_EMIT_LOC_STRINGS':'YES',
  'ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS':'NO',
 }
