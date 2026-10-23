@@ -19,6 +19,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     let previewLayer = AVSampleBufferDisplayLayer()
     private var pictureInPicture: AVPictureInPictureController?
     private var frameTimer: Timer?
+    private var menuRefreshTimer: Timer?
     private struct SubtitlePage {
         let original: String
         let translated: String
@@ -117,7 +118,15 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
                   pair.0.translated != pair.1.translated
               }) else { return }
         menuPairs = next
-        if layoutMode == "menuPages" { rebuildPages() }
+        if layoutMode == "menuPages" {
+            // Menu batch translations can deliver many results in a burst.
+            // Coalesce updates instead of rebuilding a 640x360 frame per item.
+            menuRefreshTimer?.invalidate()
+            menuRefreshTimer = Timer.scheduledTimer(withTimeInterval: 0.3,
+                                                    repeats: false) { [weak self] _ in
+                self?.rebuildPages(preservePage: true)
+            }
+        }
     }
 
     func setFontScale(_ scale: CGFloat) {
@@ -133,7 +142,8 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     private var isGroupedLayout: Bool {
         ["multiBilingual", "denseChinese", "menuPages"].contains(layoutMode)
     }
-    private func rebuildPages() {
+    private func rebuildPages(preservePage: Bool = false) {
+        let previousPage = pageIndex
         pages = makeBilingualPages()
         if layoutMode == "menuPages" {
             pageGroups = chunk(menuPairs.isEmpty ? recentPairs.suffix(1).map { $0 } : menuPairs,
@@ -145,8 +155,10 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         } else {
             pageGroups = []
         }
-        // Newest group first; old history is still kept in the app.
-        pageIndex = isGroupedLayout ? max(0, pageGroups.count - 1) : 0
+        // Newest dialogue groups first; the saved menu starts on page 1.
+        let startingPage = layoutMode == "menuPages" ? 0 :
+            (isGroupedLayout ? max(0, pageGroups.count - 1) : 0)
+        pageIndex = preservePage ? min(previousPage, pageCount - 1) : startingPage
         pageChangedAt = CACurrentMediaTime()
         renderFrame()
     }
@@ -195,6 +207,8 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         pictureInPicture?.stopPictureInPicture()
         frameTimer?.invalidate()
         frameTimer = nil
+        menuRefreshTimer?.invalidate()
+        menuRefreshTimer = nil
     }
 
     private func beginFrameTimer() {
