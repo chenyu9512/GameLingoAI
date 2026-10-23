@@ -466,15 +466,17 @@ final class DirectGameCapture: NSObject, ObservableObject,
             }
         }
         let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000)
+        let latestBottomCount = lastBottomText.isEmpty ? 0 :
+            lastBottomText.components(separatedBy: "\n").count
+        let latestBottomMs = lastBottomDuration
         DispatchQueue.main.async {
             guard self.isCurrent(frame.revision) else { return }
             self.lastOCRRaw = recognition.raw
             self.lastOCRAccepted = recognition.text
             self.lastOCRCandidates = recognition.lineCount
             self.rejectedOCRLines = recognition.rejected
-            self.bottomLines = self.lastBottomText.isEmpty ? 0 :
-                self.lastBottomText.components(separatedBy: "\n").count
-            self.bottomScanMs = self.lastBottomDuration
+            self.bottomLines = latestBottomCount
+            self.bottomScanMs = latestBottomMs
             self.frames += 1
             self.scans += 1
             self.lastFrameAt = Date()
