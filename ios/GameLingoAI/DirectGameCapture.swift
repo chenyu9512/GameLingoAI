@@ -25,6 +25,10 @@ final class DirectGameCapture: NSObject, ObservableObject,
     @Published private(set) var latest = ""
     @Published private(set) var latestLine: GameSubtitleLine?
     @Published private(set) var ocrConfidence: Double = 0
+    @Published private(set) var lastOCRRaw = ""
+    @Published private(set) var lastOCRAccepted = ""
+    @Published private(set) var rejectedOCRLines = 0
+    @Published private(set) var lastOCRCandidates = 0
     @Published private(set) var ocrElapsedMs = 0
     @Published private(set) var translationElapsedMs = 0
     @Published private(set) var lastFrameAt: Date?
@@ -60,6 +64,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let text: String
         let confidence: Double
         let lineCount: Int
+        let raw: String
+        let rejected: Int
     }
 
     // ScreenCaptureKit callbacks must never perform Vision OCR synchronously.
@@ -360,6 +366,10 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let snapshot = frame.snapshot
         let now = frame.capturedAt
         guard isCurrent(frame.revision) else { return }
+        gate.lock()
+        let inHost = hostAppForeground
+        gate.unlock()
+        if inHost { return } // Avoid capturing GameLingo's own text and PiP preview.
         let geometry = GameCaptureGeometry(
             width: CVPixelBufferGetWidth(buffer),
             height: CVPixelBufferGetHeight(buffer),
@@ -416,6 +426,10 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000)
         DispatchQueue.main.async {
             guard self.isCurrent(frame.revision) else { return }
+            self.lastOCRRaw = recognition.raw
+            self.lastOCRAccepted = recognition.text
+            self.lastOCRCandidates = recognition.lineCount
+            self.rejectedOCRLines = recognition.rejected
             self.frames += 1
             self.scans += 1
             self.lastFrameAt = Date()
@@ -557,16 +571,18 @@ final class DirectGameCapture: NSObject, ObservableObject,
                                      options: [:]).perform([request])
             let found = (request.results ?? []).compactMap {
                 observation -> (String, CGRect, Double)? in
-                guard let candidate = observation.topCandidates(1).first,
-                      candidate.confidence >= 0.28 else { return nil }
                 let rect = observation.boundingBox
                 if let excluded = snapshot.excluded,
                    excluded.contains(CGPoint(x: rect.midX, y: rect.midY)) {
                     return nil
                 }
-                let raw = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !raw.isEmpty else { return nil }
-                return (raw, rect, Double(candidate.confidence))
+                let candidates = observation.topCandidates(3).map {
+                    ($0.string, $0.confidence)
+                }
+                guard let best = GameOCRQuality.best(from: candidates,
+                                                    language: snapshot.language)
+                else { return nil }
+                return (best.text, rect, Double(best.confidence))
             }
             // Position is preserved for the complete menu list and for future
             // screenshot overlays. Do not clip this list to the first N lines.
@@ -640,28 +656,33 @@ final class DirectGameCapture: NSObject, ObservableObject,
                                           orientation: geometry.imageOrientation,
                                           options: [:])
                     .perform([request])
-                let candidates = (request.results ?? []).compactMap {
+                let observations = request.results ?? []
+                let rawLines = observations.compactMap {
+                    $0.topCandidates(1).first?.string
+                }
+                let candidates = observations.compactMap {
                     item -> (String, CGFloat, CGFloat, Float)? in
-                    guard let candidate = item.topCandidates(1).first,
-                          candidate.confidence >= 0.34,
-                          !(snapshot.excluded.map { excluded in
-                              excluded.contains(CGPoint(x: item.boundingBox.midX,
-                                                        y: item.boundingBox.midY))
-                          } ?? false) else {
-                        return nil
-                    }
-                    let content = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
-                    return content.isEmpty ? nil :
-                        (content, item.boundingBox.midY, item.boundingBox.minX, candidate.confidence)
+                    if let excluded = snapshot.excluded,
+                       excluded.contains(CGPoint(x: item.boundingBox.midX,
+                                                 y: item.boundingBox.midY)) { return nil }
+                    let choices = item.topCandidates(3).map { ($0.string, $0.confidence) }
+                    guard let best = GameOCRQuality.best(from: choices,
+                                                        language: snapshot.language) else { return nil }
+                    return (best.text, item.boundingBox.midY,
+                            item.boundingBox.minX, best.confidence)
                 }
                 let sorted = candidates.sorted { a, b in
                     abs(a.1 - b.1) < 0.025 ? a.2 < b.2 : a.1 > b.1
                 }
-                let lines = sorted.prefix(4) // Low-latency PiP only; menu OCR keeps ALL blocks.
-                let merged = lines.map(\.0).joined(separator: "\n")
-                let confidence = lines.isEmpty ? 0 : lines.map { Double($0.3) }
-                    .reduce(0, +) / Double(lines.count)
-                return Recognition(text: merged, confidence: confidence, lineCount: sorted.count)
+                // No first-4-line limit: keep every qualified OCR line and
+                // present the result in legible PiP pages or full-screen list.
+                let merged = sorted.map(\.0).joined(separator: "\n")
+                let confidence = sorted.isEmpty ? 0 : sorted.map { Double($0.3) }
+                    .reduce(0, +) / Double(sorted.count)
+                return Recognition(text: merged, confidence: confidence,
+                                   lineCount: observations.count,
+                                   raw: rawLines.joined(separator: "\n"),
+                                   rejected: max(0, rawLines.count - sorted.count))
             } catch {
                 DispatchQueue.main.async {
                     self.phase = "文字识别失败"
@@ -669,13 +690,18 @@ final class DirectGameCapture: NSObject, ObservableObject,
                     self.lastError = error.localizedDescription
                     self.failures += 1
                 }
-                return Recognition(text: "", confidence: 0, lineCount: 0)
+                return Recognition(text: "", confidence: 0, lineCount: 0,
+                                   raw: "", rejected: 0)
             }
         }
         let first = pass(.fast)
         // Two-stage OCR: scan cheaply first; refine *only* when characters exist.
-        if snapshot.performance == .balanced,
-           !first.text.isEmpty && first.confidence < 0.60 {
+        // Japanese .fast OCR can be unsupported or noisy on some iOS builds.
+        // Refine only when confidence/quality requires it, keeping ordinary
+        // readable lines on the fast path.
+        if snapshot.performance != .battery,
+           first.text.isEmpty || (snapshot.performance == .balanced
+                                 && first.confidence < 0.66) {
             let second = pass(.accurate)
             return second.text.isEmpty ? first : second
         }
@@ -775,6 +801,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
         Capturing: \(isCapturing)
         Last frame: \(stamp)
         OCR scans: \(scans) / reused frames: \(ignoredFrames)
+        OCR candidates: \(lastOCRCandidates), rejected lines: \(rejectedOCRLines)
+        Raw OCR: \(lastOCRRaw)
+        Validated OCR: \(lastOCRAccepted)
         Translations: \(translatedCount)
         OCR: \(ocrElapsedMs)ms, confidence: \(Int(ocrConfidence * 100))%
         Translation: \(translationElapsedMs)ms
