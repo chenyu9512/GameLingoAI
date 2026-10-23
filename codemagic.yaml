@@ -67,6 +67,7 @@ workflows:
           xcrun swiftc -frontend -parse -D DIRECT_CAPTURE \
             ios/GameLingoAI/GameLingoAIApp.swift \
             ios/GameLingoAI/GameLingoStore.swift \
+            ios/GameLingoAI/GameCaptureGeometry.swift \
             ios/GameLingoAI/GameMenuCatalog.swift \
             ios/GameLingoAI/DirectHomeView.swift \
             ios/GameLingoAI/DirectGameCapture.swift \
