@@ -118,16 +118,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
     // Called from SwiftUI when a selected game profile or power mode changes.
     @MainActor
     func configure(profile: GameProfile, performance: GamePerformance) {
-        // Bundle-only terminology: short names and original RPG prompts.
-        // User game glossary overrides bundled entries.
-        var mergedTerms = GameRPGDictionary.mapping
-        if !profile.dragonQuestEnabled {
-            for term in GameRPGDictionary.terms
-                where term.category == "勇者斗恶龙专用" {
-                mergedTerms.removeValue(forKey: term.japanese)
-            }
-        }
-        mergedTerms.merge(GameLingoStore.glossaryMap(profile.glossary)) { _, custom in custom }
+        // One-tap lexicon pack: loaded directly from bundled entries.
+        // The user's editable glossary remains untouched and takes priority.
+        let mergedTerms = GameRPGDictionary.glossary(for: profile)
         let snapshot = Snapshot(profileID: profile.id, name: profile.name, language: profile.language,
                                 portraitROI: profile.region.rect,
                                 landscapeROI: profile.region(for: .landscape).rect,
