@@ -142,7 +142,8 @@ final class GameLingoStore: ObservableObject {
     @Published var pipLayout: GamePiPLayout { didSet { persist() } }
     @Published var subtitleMode: GameSubtitleMode { didSet { persist() } }
     @Published var fontScale: Double { didSet { persist() } }
-    @Published var history: [GameSubtitleLine] { didSet { persist() } }
+    @Published var history: [GameSubtitleLine] { didSet { scheduleHistoryPersist() } }
+    private var historyPersistTask: DispatchWorkItem?
     @Published var onboardingComplete: Bool { didSet { persist() } }
 
     private init() {
@@ -262,7 +263,24 @@ final class GameLingoStore: ObservableObject {
         return result
     }
 
+    private func scheduleHistoryPersist() {
+        // Translating every dialogue line should not synchronously encode
+        // a 200-entry history blob on the main thread.
+        historyPersistTask?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.persist() }
+        historyPersistTask = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: work)
+    }
+
+    func flushHistory() {
+        historyPersistTask?.cancel()
+        historyPersistTask = nil
+        persist()
+    }
+
     private func persist() {
+        historyPersistTask?.cancel()
+        historyPersistTask = nil
         let state = Saved(profiles: profiles, activeID: activeID,
                           performance: performance, provider: provider, endpoint: endpoint,
                           autoplay: autoplay, playbackSeconds: playbackSeconds,
