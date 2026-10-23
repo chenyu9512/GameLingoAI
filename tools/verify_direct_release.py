@@ -19,6 +19,11 @@ subtitle = read("ios/GameLingoAI/FloatingSubtitleController.swift")
 models = read("ios/GameLingoAI/GameLingoStore.swift")
 geometry = read("ios/GameLingoAI/GameCaptureGeometry.swift")
 menu = read("ios/GameLingoAI/GameMenuCatalog.swift")
+online = read("ios/GameLingoAI/GameOnlineTranslation.swift")
+languages = read("ios/GameLingoAI/GameLanguageSupport.swift")
+rpg = read("ios/GameLingoAI/GameRPGDictionary.swift")
+translation_settings = read("ios/GameLingoAI/GameTranslationSettingsView.swift")
+rpg_settings = read("ios/GameLingoAI/GameRPGDictionaryView.swift")
 plist = plistlib.loads((root / "ios/GameLingoAI/InfoDirect.plist").read_bytes())
 
 checks = {
@@ -29,6 +34,41 @@ checks = {
     and "GameLingoStore.swift" in project,
     "orientation geometry compiled": "GameCaptureGeometry.swift" in generator
     and "GameCaptureGeometry.swift" in project,
+    "all new components included in iOS direct target":
+        all(name in generator and name in project for name in [
+            "GameOnlineTranslation.swift", "GameLanguageSupport.swift",
+            "GameRPGDictionary.swift", "GameRPGDictionaryView.swift",
+            "GameTranslationSettingsView.swift"]),
+    "offline is persisted default": "provider = stored?.provider ?? .offline" in models
+        and "provider: GameTranslationProvider?" in models,
+    "HTTPS only and secrets in Keychain": "value.scheme?.lowercased() == \"https\"" in online
+        and "SecItemAdd(" in online and "kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly" in online,
+    "online API explicit test before enabling":
+        "await tester.test(provider: choice" in translation_settings
+        and "store.provider = choice" in translation_settings
+        and "store.provider = .offline" in translation_settings,
+    "MyMemory quotas and size capped":
+        "anonymousDailyLimit = 4900" in online
+        and "splitUTF8(value, maxBytes: 440)" in online
+        and "https://api.mymemory.translated.net/get" in online,
+    "custom HTTPS JSON API": "case .customJSON:" in online
+        and "resultAtPath(json, path: path)" in online
+        and "request.setValue(endpoint.apiKeyPrefix + key" in online,
+    "LibreTranslate compatible": "case .libreTranslate, .customJSON" in online
+        and "body[\"api_key\"] = key" in online,
+    "offline languages downloaded as needed":
+        "try await session.prepareTranslation()" in home
+        and "downloadSourceLanguage" in home,
+    "Vision OCR language mapping": "supportedRecognitionLanguages()" in languages
+        and "GameLanguageSupport.setup(request" in capture,
+    "curated RPG dictionary and DQ terminology":
+        rpg.count("RPGGameTerm(category:") >= 400
+        and "勇者斗恶龙专用" in rpg
+        and "GameRPGDictionaryView" in home,
+    "per-game override glossary first": "mergedTerms.merge(GameLingoStore.glossaryMap" in capture
+        and "profile.dragonQuestEnabled" in capture,
+    "offline and online cache separated": "profile.provider.rawValue + \"|\"" in capture
+        and "provider: provider" in menu,
     "automatic portrait and landscape frame detection":
         "renderedWidth >= renderedHeight" in geometry
         and "GameCaptureGeometry(" in capture
@@ -93,14 +133,15 @@ checks = {
         "'CODE_SIGN_ENTITLEMENTS':'' if DIRECT" in generator,
     "full-display background capture declaration":
         "screen-capture" in plist.get("UIBackgroundModes", []),
-    "v3.2 release version":
-        "'MARKETING_VERSION':'3.2.0' if DIRECT" in generator,
+    "v3.3 release version":
+        "'MARKETING_VERSION':'3.3.0' if DIRECT" in generator,
     "direct PiP preview retained": "FloatingSubtitlePreview" in home,
-    "offline Translation session": "TranslationSession(" in capture
-    and "installedSource:" in capture,
+    "offline Translation session": "TranslationSession(" in online
+    and "installedSource:" in online
+    and "session.translate(batch: requests)" in menu,
 }
 for label, valid in checks.items():
     print(("OK  " if valid else "FAIL") + label)
 if not all(checks.values()):
     raise SystemExit("Direct release preflight failed")
-print("PASS: GameLingo Direct 3.2 portrait/landscape bilingual/menu build source preflight")
+print("PASS: GameLingo Direct 3.3 offline-by-default, online opt-in, RPG lexicon and orientation preflight")
