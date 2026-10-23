@@ -618,6 +618,11 @@ struct DirectHomeView: View {
                 Label("选择一张游戏截图", systemImage: "photo.badge.plus")
             }.buttonStyle(.bordered)
             if !screenshotText.isEmpty {
+                Button {
+                    tab = 1
+                } label: {
+                    Label("查看截图完整双语清单", systemImage: "list.bullet.rectangle")
+                }.buttonStyle(.borderedProminent).tint(mint)
                 Text(screenshotText).font(.subheadline).foregroundStyle(mint)
                     .textSelection(.enabled)
                 Button("在本机翻译截图") {
@@ -768,13 +773,37 @@ struct DirectHomeView: View {
             request.recognitionLanguages = [ocrLanguage]
             request.usesLanguageCorrection = true
             try VNImageRequestHandler(cgImage: image).perform([request])
-            screenshotText = (request.results ?? []).compactMap {
-                $0.topCandidates(1).first?.string
-            }.prefix(15).joined(separator: "\n")
+            let results = (request.results ?? []).compactMap {
+                item -> (String, CGRect, Double)? in
+                guard let best = item.topCandidates(1).first,
+                      !best.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                else { return nil }
+                return (best.string, item.boundingBox, Double(best.confidence))
+            }.sorted { lhs, rhs in
+                abs(lhs.1.midY - rhs.1.midY) < 0.025
+                    ? lhs.1.minX < rhs.1.minX : lhs.1.midY > rhs.1.midY
+            }
+            screenshotText = results.map { $0.0 }.joined(separator: "\n")
             screenshotResult = ""
             screenshotConfiguration = nil
-            screenshotStatus = screenshotText.isEmpty
-                ? "没有识别到文字" : "已识别原文，点击本机翻译"
+            if results.isEmpty {
+                screenshotStatus = "没有识别到文字"
+            } else {
+                let blocks: [GameMenuBlock] = results.enumerated().map { index, item in
+                    GameMenuBlock(id: "photo-\(index)", original: item.0,
+                                  chinese: nil, x: Double(item.1.minX),
+                                  y: Double(item.1.minY), width: Double(item.1.width),
+                                  height: Double(item.1.height), confidence: item.2)
+                }
+                menuCatalog.receive(
+                    blocks, profileID: store.activeID,
+                    gameName: store.activeProfile.name,
+                    language: store.activeProfile.language,
+                    glossary: GameLingoStore.glossaryMap(store.activeProfile.glossary),
+                    fingerprint: UInt64(Date().timeIntervalSince1970 * 1000),
+                    ocrMilliseconds: 0)
+                screenshotStatus = "识别了 \(blocks.count) 条；请在“整屏文字”查看逐条中文"
+            }
         } catch {
             screenshotStatus = "OCR 失败：" + error.localizedDescription
         }
