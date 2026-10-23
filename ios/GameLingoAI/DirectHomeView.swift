@@ -43,12 +43,13 @@ struct DirectHomeView: View {
     var body: some View {
         ZStack {
             LinearGradient(colors: [
-                navy, Color(red: 0.04, green: 0.11, blue: 0.17), navy
+                navy, Color(red: 0.045, green: 0.14, blue: 0.21),
+                Color(red: 0.025, green: 0.055, blue: 0.105), navy
             ], startPoint: .topLeading, endPoint: .bottomTrailing)
             .ignoresSafeArea()
             VStack(spacing: 0) {
                 ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 17) {
+                    VStack(alignment: .leading, spacing: 18) {
                         header
                         if tab == 0 { realtimePage }
                         else if tab == 1 { fullScreenPage }
@@ -94,6 +95,9 @@ struct DirectHomeView: View {
         .onChange(of: store.fontScale) { _, _ in configureOverlay() }
         .onChange(of: store.pipLayout) { _, _ in configureOverlay() }
         .onChange(of: store.subtitleMode) { _, _ in configureOverlay() }
+        .onChange(of: store.autoplay) { _, _ in configureOverlay() }
+        .onChange(of: store.playbackSeconds) { _, _ in configureOverlay() }
+        .onChange(of: store.readAloud) { _, _ in configureOverlay() }
         .onReceive(capture.$latestLine) { item in
             guard let item else { return }
             overlay.setBilingual(original: item.original, translated: item.translated)
@@ -152,11 +156,21 @@ struct DirectHomeView: View {
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text("GameLingo").font(.system(size: 27, weight: .bold, design: .rounded))
-                Text("DIRECT 3.4  ·  极速 OCR / 多行双语")
+                Text("DIRECT 3.5  ·  LIVE TRANSLATION")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(mint)
             }
             Spacer()
+            HStack(spacing: 5) {
+                Circle().fill(capture.isCapturing ? mint : .white.opacity(0.35))
+                    .frame(width: 6, height: 6)
+                Text(capture.isCapturing ? "LIVE" : "READY")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(capture.isCapturing ? mint : .white.opacity(0.6))
+            }
+            .padding(.horizontal, 9).padding(.vertical, 7)
+            .background(.white.opacity(0.06),
+                        in: Capsule())
             Button { showingOnboarding = true } label: {
                 Image(systemName: "questionmark.circle")
                     .font(.title2).foregroundStyle(.white.opacity(0.72))
@@ -165,8 +179,58 @@ struct DirectHomeView: View {
         }
     }
 
+    private var statusDashboard: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack(spacing: 11) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 15)
+                        .fill(mint.opacity(0.16))
+                        .frame(width: 46, height: 46)
+                    Image(systemName: capture.isCapturing
+                          ? "waveform.path" : "captions.bubble.fill")
+                        .font(.title2).foregroundStyle(mint)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(capture.isCapturing ? "正在捕获游戏画面" : "准备开始游戏翻译")
+                        .font(.headline)
+                    Text(store.activeProfile.name + " · " +
+                         (store.provider == .offline ? "隐私本机模式" : "在线翻译模式"))
+                        .font(.caption).foregroundStyle(.white.opacity(0.7))
+                }
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 7) {
+                metric("\(capture.translatedCount)", "已翻译")
+                metric("\(capture.ocrElapsedMs) ms", "OCR 耗时")
+                metric("\(capture.bottomLines)", "底部文字")
+            }
+            HStack(spacing: 8) {
+                Button {
+                    tab = 2
+                } label: {
+                    Label("配置游戏", systemImage: "slider.horizontal.3")
+                }.buttonStyle(.bordered)
+                Button {
+                    tab = 1
+                } label: {
+                    Label("阅读完整译文", systemImage: "text.book.closed")
+                }.buttonStyle(.bordered)
+            }
+            .font(.caption)
+        }
+        .padding(16)
+        .background(
+            LinearGradient(colors: [Color(red: 0.11, green: 0.25, blue: 0.29),
+                                    Color(red: 0.065, green: 0.14, blue: 0.22)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing),
+            in: RoundedRectangle(cornerRadius: 22))
+        .overlay(RoundedRectangle(cornerRadius: 22)
+            .stroke(mint.opacity(0.19), lineWidth: 1))
+    }
+
     private var realtimePage: some View {
         VStack(alignment: .leading, spacing: 16) {
+            statusDashboard
             panel {
                 HStack(spacing: 9) {
                     Image(systemName: "checkmark.shield.fill").foregroundStyle(mint)
@@ -282,9 +346,25 @@ struct DirectHomeView: View {
                 }
                 Text(overlay.status)
                     .font(.caption2).foregroundStyle(.white.opacity(0.67))
+                HStack(spacing: 9) {
+                    Button { overlay.previousPage() } label: {
+                        Image(systemName: "backward.end.fill")
+                    }
+                    Button { overlay.togglePlayback() } label: {
+                        Image(systemName: overlay.isPlaybackPaused
+                              ? "play.fill" : "pause.fill")
+                    }
+                    Button { overlay.nextPage() } label: {
+                        Image(systemName: "forward.end.fill")
+                    }
+                    Spacer()
+                    Text(overlay.playbackPage).font(.caption.monospacedDigit())
+                }
+                .buttonStyle(.bordered)
+                .accessibilityElement(children: .contain)
                 Text("PiP 视频帧：\(overlay.outputFrameCount)")
                     .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.7))
-                Text("多行双语显示最近 2～3 组；中文高密度最多 5 条；菜单分页显示已保存的整屏项目。")
+                Text("智能连续播放：每页自动前进，支持暂停和阅读速度调节。小窗字体与页面容量由显示模式决定。")
                     .font(.caption2).foregroundStyle(.white.opacity(0.66))
             }
 
@@ -551,6 +631,13 @@ struct DirectHomeView: View {
 
             panel {
                 sectionTitle("专属 OCR 识别区域", icon: "scope")
+                Toggle(isOn: Binding(
+                    get: { profileDraft.bottomScanEnabled },
+                    set: { profileDraft.bottomBoost = $0 })) {
+                    Label("屏幕底部强化识别", systemImage: "text.viewfinder")
+                }.tint(mint)
+                Text("最下方 21% 区域独立精确补扫，覆盖旧配置漏掉的底边；频率低于主 OCR，关闭可省电。更改后保存游戏配置。")
+                    .font(.caption).foregroundStyle(.white.opacity(0.7))
                 Text("竖屏和横屏分别保存识别框。导入对应方向的游戏截图，再拖动绿色框或使用滑块调整。")
                     .font(.caption).foregroundStyle(.white.opacity(0.71))
                 Picker("编辑方向", selection: $editingLayout) {
@@ -682,10 +769,20 @@ struct DirectHomeView: View {
                     ForEach(GamePiPLayout.allCases) { item in
                         Text(item.title).tag(item)
                     }
-                }.pickerStyle(.segmented)
+                }.pickerStyle(.menu)
                 Text("多行双语显示最近几组对话；中文高密度提高容量；菜单分页从整屏清单读取内容。所有内容仍保存在 App 中。")
                     .font(.caption2).foregroundStyle(.white.opacity(0.7))
-                Text("默认双语：上方显示游戏原文，下方显示中文；字号可在实时页调整。")
+                Toggle("自动连续翻页", isOn: $store.autoplay).tint(mint)
+                HStack {
+                    Text("每页停留时间").font(.caption)
+                    Slider(value: $store.playbackSeconds, in: 2...10, step: 0.5)
+                        .tint(mint)
+                    Text("\(store.playbackSeconds, specifier: "%.1f")秒")
+                        .font(.caption.monospacedDigit())
+                }
+                Toggle("朗读中文译文（关闭时不影响游戏声音）",
+                       isOn: $store.readAloud).tint(mint)
+                Text("默认双语：上方游戏原文，下方中文译文；字号可在实时页调整。")
                     .font(.caption2).foregroundStyle(.white.opacity(0.7))
             }
 
@@ -921,8 +1018,11 @@ struct DirectHomeView: View {
             tabButton(2, "游戏配置", icon: "slider.horizontal.3")
             tabButton(3, "历史", icon: "clock.arrow.circlepath")
         }
-        .padding(.top, 11).padding(.bottom, 6)
-        .background(card)
+        .padding(.top, 13).padding(.bottom, 8)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) {
+            Rectangle().fill(.white.opacity(0.09)).frame(height: 1)
+        }
     }
 
     private func tabButton(_ i: Int, _ text: String, icon: String) -> some View {
@@ -951,8 +1051,8 @@ struct DirectHomeView: View {
         VStack(alignment: .leading, spacing: 11, content: content)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(15)
-            .background(card.opacity(0.96), in: RoundedRectangle(cornerRadius: 16))
-            .overlay(RoundedRectangle(cornerRadius: 16)
+            .background(card.opacity(0.96), in: RoundedRectangle(cornerRadius: 20))
+            .overlay(RoundedRectangle(cornerRadius: 20)
                 .stroke(.white.opacity(0.07), lineWidth: 1))
     }
 
@@ -983,6 +1083,9 @@ struct DirectHomeView: View {
     }
 
     private func configureOverlay() {
+        overlay.configurePlayback(autoplay: store.autoplay,
+                                  seconds: store.playbackSeconds,
+                                  readAloud: store.readAloud)
         overlay.setMode(store.subtitleMode.rawValue, layout: store.pipLayout.rawValue)
         overlay.setFontScale(CGFloat(store.fontScale))
         syncMenuOverlay()
