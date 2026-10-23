@@ -32,6 +32,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
     @Published private(set) var lastError = ""
 
     private struct Snapshot {
+        var profileID: UUID
         var name: String
         var language: String
         var roi: CGRect
@@ -39,7 +40,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         var glossary: [String: String]
         var performance: GamePerformance
 
-        static let initial = Snapshot(name: "默认游戏", language: "ja",
+        static let initial = Snapshot(profileID: UUID(), name: "默认游戏", language: "ja",
                                       roi: GameOCRBox.dialogue.rect,
                                       excluded: nil, glossary: [:],
                                       performance: .balanced)
@@ -48,15 +49,25 @@ final class DirectGameCapture: NSObject, ObservableObject,
     private struct Recognition {
         let text: String
         let confidence: Double
+        let lineCount: Int
     }
 
     private let captureQueue = DispatchQueue(label: "GameLingo.ocr.queue", qos: .userInitiated)
+    private let menuQueue = DispatchQueue(label: "GameLingo.fullscreen.ocr", qos: .utility)
     private let gate = NSLock()
     private var config = Snapshot.initial
     private var busy = false
     private var lastAcceptedAt: TimeInterval = 0
     private var lastFingerprint: UInt64 = 0
     private var lastOCRAt: TimeInterval = 0
+    // Protected by gate; full-screen OCR is independently scheduled and never
+    // blocks the faster PiP OCR callback queue.
+    private var menuInFlight = false
+    private var forceMenuScan = false
+    private var lastMenuScannedAt: TimeInterval = 0
+    private var lastMenuFingerprint: UInt64 = 0
+    private var lastPageFingerprint: UInt64 = 0
+    private var menuStaticSince: TimeInterval = 0
     // Mutable only on captureQueue.
     private var candidate = ""
     private var candidateCount = 0
@@ -82,13 +93,19 @@ final class DirectGameCapture: NSObject, ObservableObject,
     // Called from SwiftUI when a selected game profile or power mode changes.
     @MainActor
     func configure(profile: GameProfile, performance: GamePerformance) {
-        let snapshot = Snapshot(name: profile.name, language: profile.language,
+        let snapshot = Snapshot(profileID: profile.id, name: profile.name, language: profile.language,
                                 roi: profile.region.rect, excluded: profile.excluded?.rect,
                                 glossary: GameLingoStore.glossaryMap(profile.glossary),
                                 performance: performance)
         gate.lock()
         config = snapshot
+        forceMenuScan = true
+        lastMenuScannedAt = 0
+        lastMenuFingerprint = 0
+        lastPageFingerprint = 0
+        menuStaticSince = 0
         gate.unlock()
+        GameMenuCatalog.shared.cancelForProfileChange()
         captureQueue.async { [weak self] in
             self?.lastFingerprint = 0
             self?.candidate = ""
@@ -122,6 +139,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let old = stream
         stream = nil
         lastRequestedFilter = nil
+        GameMenuCatalog.shared.cancelForProfileChange()
         pendingTranslation?.cancel()
         translationRevision += 1
         pendingTranslation = nil
@@ -247,6 +265,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             busy = false
             gate.unlock()
         }
+        scheduleMenuScan(buffer, snapshot: snapshot, now: now)
         let fingerprint = frameFingerprint(buffer, region: snapshot.roi)
         let staticScene = fingerprint != 0 && fingerprint == lastFingerprint
         // Still recheck static frames periodically: failed translations may retry,
@@ -283,11 +302,128 @@ final class DirectGameCapture: NSObject, ObservableObject,
         }
         if candidate == text { candidateCount += 1 }
         else { candidate = text; candidateCount = 1 }
-        let needed = snapshot.performance == .fast ? 1 : 2
+        // A stable, high-confidence line can be sent immediately instead of
+        // waiting for a second OCR cycle. Dense menus use the full-page lane.
+        guard recognition.lineCount <= 5 && text.count <= 190 else { return }
+        let needed = snapshot.performance == .fast || recognition.confidence >= 0.76 ? 1 : 2
         guard candidateCount >= needed else { return }
 
         DispatchQueue.main.async { [weak self] in
             self?.submit(text, profile: snapshot, detectedAt: now)
+        }
+    }
+
+
+    /// Trigger a complete scan of the next available captured frame. No new
+    /// iOS screen permission prompt is needed when the stream is running.
+    @MainActor
+    func requestFullScreenScan() {
+        guard isCapturing else {
+            phase = "请先开始屏幕采集"
+            details = "授权并捕获整个屏幕后，才能扫描游戏菜单"
+            return
+        }
+        gate.lock()
+        forceMenuScan = true
+        gate.unlock()
+        GameMenuCatalog.shared.statusForUserRequest()
+    }
+
+    // This lane intentionally checks the entire image, unlike fast PiP OCR.
+    // Stable pages are scanned promptly; animated menus get a periodic
+    // fallback scan (8 sec), and the user can request an immediate scan.
+    private func scheduleMenuScan(_ buffer: CVPixelBuffer,
+                                  snapshot: Snapshot, now: TimeInterval) {
+        gate.lock()
+        let forced = forceMenuScan
+        let enoughTime = now - lastMenuScannedAt >= 0.7
+        let running = menuInFlight
+        gate.unlock()
+        guard (forced || enoughTime) && !running else { return }
+
+        let fingerprint = frameFingerprint(buffer, region: GameOCRBox.full.rect)
+        gate.lock()
+        if fingerprint != lastMenuFingerprint {
+            lastMenuFingerprint = fingerprint
+            menuStaticSince = now
+        }
+        let stable = now - menuStaticSince >= 1.1
+        let changed = fingerprint != lastPageFingerprint
+        let fallback = now - lastMenuScannedAt >= 8
+        let perform = !menuInFlight && (forced || (stable && changed) || fallback)
+        if perform {
+            menuInFlight = true
+            forceMenuScan = false
+            lastMenuScannedAt = now
+            lastPageFingerprint = fingerprint
+        }
+        gate.unlock()
+        guard perform else { return }
+
+        menuQueue.async { [weak self] in
+            guard let self else { return }
+            let started = CFAbsoluteTimeGetCurrent()
+            let textBlocks = self.recognizeFullScreen(buffer, using: snapshot)
+            let took = Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
+            self.gate.lock()
+            self.menuInFlight = false
+            self.gate.unlock()
+            DispatchQueue.main.async {
+                // Outdated work from a previously selected game is discarded
+                // by the catalog's profile check.
+                GameMenuCatalog.shared.receive(
+                    textBlocks, profileID: snapshot.profileID,
+                    gameName: snapshot.name, language: snapshot.language,
+                    glossary: snapshot.glossary, fingerprint: fingerprint,
+                    ocrMilliseconds: took)
+            }
+        }
+    }
+
+    private func recognizeFullScreen(_ buffer: CVPixelBuffer,
+                                     using snapshot: Snapshot) -> [GameMenuBlock] {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.minimumTextHeight = 0.006
+        request.usesLanguageCorrection = true
+        let languages = ["ja": "ja-JP", "en": "en-US", "ko": "ko-KR"]
+        request.recognitionLanguages = [languages[snapshot.language] ?? "ja-JP"]
+        request.regionOfInterest = GameOCRBox.full.rect
+        do {
+            try VNImageRequestHandler(cvPixelBuffer: buffer,
+                                     orientation: .up, options: [:]).perform([request])
+            let found = (request.results ?? []).compactMap {
+                observation -> (String, CGRect, Double)? in
+                guard let candidate = observation.topCandidates(1).first,
+                      candidate.confidence >= 0.28 else { return nil }
+                let rect = observation.boundingBox
+                if let excluded = snapshot.excluded,
+                   excluded.contains(CGPoint(x: rect.midX, y: rect.midY)) {
+                    return nil
+                }
+                let raw = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !raw.isEmpty else { return nil }
+                return (raw, rect, Double(candidate.confidence))
+            }
+            // Position is preserved for the complete menu list and for future
+            // screenshot overlays. Do not clip this list to the first N lines.
+            let sorted = found.sorted { a, b in
+                abs(a.1.midY - b.1.midY) < 0.025
+                    ? a.1.minX < b.1.minX : a.1.midY > b.1.midY
+            }
+            return sorted.enumerated().map { offset, item in
+                GameMenuBlock(id: "\(offset)-\(Int(item.1.minX * 1000))-\(Int(item.1.midY * 1000))",
+                              original: item.0, chinese: nil,
+                              x: Double(item.1.minX), y: Double(item.1.minY),
+                              width: Double(item.1.width), height: Double(item.1.height),
+                              confidence: item.2)
+            }
+        } catch {
+            DispatchQueue.main.async {
+                self.lastError = "全屏 OCR：" + error.localizedDescription
+                self.failures += 1
+            }
+            return []
         }
     }
 
@@ -357,11 +493,11 @@ final class DirectGameCapture: NSObject, ObservableObject,
                 let sorted = candidates.sorted { a, b in
                     abs(a.1 - b.1) < 0.025 ? a.2 < b.2 : a.1 > b.1
                 }
-                let lines = sorted.prefix(7)
+                let lines = sorted.prefix(4) // Low-latency PiP only; menu OCR keeps ALL blocks.
                 let merged = lines.map(\.0).joined(separator: "\n")
                 let confidence = lines.isEmpty ? 0 : lines.map { Double($0.3) }
                     .reduce(0, +) / Double(lines.count)
-                return Recognition(text: merged, confidence: confidence)
+                return Recognition(text: merged, confidence: confidence, lineCount: sorted.count)
             } catch {
                 DispatchQueue.main.async {
                     self.phase = "文字识别失败"
@@ -369,12 +505,13 @@ final class DirectGameCapture: NSObject, ObservableObject,
                     self.lastError = error.localizedDescription
                     self.failures += 1
                 }
-                return Recognition(text: "", confidence: 0)
+                return Recognition(text: "", confidence: 0, lineCount: 0)
             }
         }
         let first = pass(.fast)
         // Two-stage OCR: scan cheaply first; refine *only* when characters exist.
-        if snapshot.performance == .balanced, !first.text.isEmpty {
+        if snapshot.performance == .balanced,
+           !first.text.isEmpty && first.confidence < 0.60 {
             let second = pass(.accurate)
             return second.text.isEmpty ? first : second
         }
