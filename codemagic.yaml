@@ -65,6 +65,10 @@ workflows:
           python3 tools/verify_direct_release.py
           echo "Type-checking Foundation-only OCR quality module"
           xcrun swiftc -typecheck ios/GameLingoAI/GameOCRQuality.swift
+          xcrun swiftc -typecheck ios/GameLingoAI/GameGlossaryTXTParser.swift
+          echo "Testing TXT glossary UTF-8, UTF-16 and collision handling"
+          xcrun swiftc ios/GameLingoAI/GameGlossaryTXTParser.swift tests/glossary_txt_smoke.swift -o /tmp/gamelingo-glossary-smoke
+          /tmp/gamelingo-glossary-smoke
           echo "Running Japanese OCR smoke tests on build Mac"
           xcrun swiftc ios/GameLingoAI/GameOCRQuality.swift tests/ocr_quality_smoke.swift -o /tmp/gamelingo-ocr-smoke
           /tmp/gamelingo-ocr-smoke
@@ -73,6 +77,9 @@ workflows:
             ios/GameLingoAI/GameLingoAIApp.swift \
             ios/GameLingoAI/GameLingoStore.swift \
             ios/GameLingoAI/GameOnlineTranslation.swift \
+            ios/GameLingoAI/GameGlossaryTXTParser.swift \
+            ios/GameLingoAI/GameGlossaryLibrary.swift \
+            ios/GameLingoAI/GameGlossaryLibraryView.swift \
             ios/GameLingoAI/GameLanguageSupport.swift \
             ios/GameLingoAI/GameOCRQuality.swift \
             ios/GameLingoAI/GameRPGDictionary.swift \
