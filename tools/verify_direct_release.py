@@ -16,6 +16,7 @@ app = read("ios/GameLingoAI/GameLingoAIApp.swift")
 home = read("ios/GameLingoAI/DirectHomeView.swift")
 capture = read("ios/GameLingoAI/DirectGameCapture.swift")
 subtitle = read("ios/GameLingoAI/FloatingSubtitleController.swift")
+pip_renderer = read("ios/GameLingoAI/GamePiPFrameRenderer.swift")
 models = read("ios/GameLingoAI/GameLingoStore.swift")
 geometry = read("ios/GameLingoAI/GameCaptureGeometry.swift")
 menu = read("ios/GameLingoAI/GameMenuCatalog.swift")
@@ -82,6 +83,29 @@ checks = {
         "private var statusDashboard:" in home
         and "ConfigSection.allCases" in home
         and "DIRECT 3.5" in home,
+    "off-main CoreText PiP worker built in direct target":
+        "GamePiPFrameRenderer.swift" in generator
+        and "GamePiPFrameRenderer.swift" in project
+        and "GamePiPFrameRenderer.swift" in Path("codemagic.yaml").read_text(encoding="utf-8")
+        and "GameLingo.PiP.CoreText" in pip_renderer
+        and "CVPixelBufferPoolCreatePixelBuffer" in pip_renderer
+        and "UIGraphicsImageRenderer" not in subtitle,
+    "latest pending PiP frame and renderer readiness":
+        "pendingSample = buffer" in subtitle
+        and "requestMediaDataWhenReady" in subtitle
+        and "stopRequestingMediaData()" in subtitle,
+    "real time dialogue is not blocked by bottom OCR":
+        "GameLingo.secondary.ocr" in capture
+        and "self.recognizeBottom(buffer" in capture
+        and "self.ocrQueue.async" in capture
+        and "recentlyDetectedDialogue" in capture,
+    "latency breakdown and rolling percentiles":
+        "queueWaitMs" in capture
+        and "discardedCaptureFrames" in capture
+        and "captureToTranslationMs" in capture
+        and "p50CaptureToPiPMs" in subtitle
+        and "p95CaptureToPiPMs" in subtitle
+        and "captureToPiPMs" in home,
     "quality filter included in target": "GameOCRQuality.swift" in generator
         and "GameOCRQuality.swift" in project
         and "GameOCRQuality.best(" in capture,
@@ -216,8 +240,9 @@ checks = {
         "capture.requestFullScreenScan()" in home
         and "ForEach(page.blocks)" in home,
     "bilingual PiP original and translation": "setBilingual(original:" in subtitle
-    and "drawCentered(page.original" in subtitle
-    and "drawCentered(page.translated" in subtitle,
+        and "entry.original" in pip_renderer
+        and "entry.translated" in pip_renderer
+        and "frameRenderer.render(" in subtitle,
     "bilingual default": "subtitleMode = stored?.subtitleMode ?? .bilingual" in models,
     "latest-only translation revision": "translationRevision" in capture
     and "revision == translationRevision" in capture,
@@ -235,8 +260,8 @@ checks = {
         "'CODE_SIGN_ENTITLEMENTS':'' if DIRECT" in generator,
     "full-display background capture declaration":
         "screen-capture" in plist.get("UIBackgroundModes", []),
-    "v3.5 release version":
-        "'MARKETING_VERSION':'3.5.0' if DIRECT" in generator,
+    "v3.5.1 release version":
+        "'MARKETING_VERSION':'3.5.1' if DIRECT" in generator,
     "direct PiP preview retained": "FloatingSubtitlePreview" in home,
     "offline Translation session": "TranslationSession(" in online
     and "installedSource:" in online
@@ -246,4 +271,4 @@ for label, valid in checks.items():
     print(("OK  " if valid else "FAIL") + label)
 if not all(checks.values()):
     raise SystemExit("Direct release preflight failed")
-print("PASS: GameLingo Direct 3.5 bottom OCR, autoplay, TXT packs, key-first APIs and UI preflight")
+print("PASS: GameLingo Direct 3.5.1 off-main PiP, OCR priority lanes, live first and latency metrics preflight")
