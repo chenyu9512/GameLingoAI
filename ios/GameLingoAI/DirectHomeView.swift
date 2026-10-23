@@ -8,6 +8,7 @@ import UIKit
 @available(iOS 27.0, *)
 @MainActor
 struct DirectHomeView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var store = GameLingoStore.shared
     @ObservedObject private var capture = DirectGameCapture.shared
     @StateObject private var menuCatalog = GameMenuCatalog.shared
@@ -57,10 +58,14 @@ struct DirectHomeView: View {
         .preferredColorScheme(.dark)
         .foregroundStyle(.white)
         .onAppear {
+            capture.setHostAppForeground(true)
             profileDraft = store.activeProfile
             updateCaptureConfiguration()
             configureOverlay()
             if !store.onboardingComplete { showingOnboarding = true }
+        }
+        .onChange(of: scenePhase) { _, state in
+            capture.setHostAppForeground(state == .active)
         }
         .onChange(of: store.activeID) { _, _ in
             profileDraft = store.activeProfile
@@ -268,7 +273,7 @@ struct DirectHomeView: View {
                     Button {
                         capture.requestFullScreenScan()
                     } label: {
-                        Label("立即扫描整屏", systemImage: "viewfinder")
+                        Label("返回游戏后扫描", systemImage: "viewfinder")
                     }.buttonStyle(.bordered)
                     Button {
                         tab = 1
@@ -298,7 +303,7 @@ struct DirectHomeView: View {
                     Button {
                         capture.requestFullScreenScan()
                     } label: {
-                        Label("重新扫描当前屏幕", systemImage: "arrow.clockwise")
+                        Label("返回游戏后重新扫描", systemImage: "arrow.clockwise")
                     }.buttonStyle(.borderedProminent).tint(mint)
                     if menuCatalog.isTranslating {
                         ProgressView().tint(mint)
@@ -801,7 +806,7 @@ struct DirectHomeView: View {
                     language: store.activeProfile.language,
                     glossary: GameLingoStore.glossaryMap(store.activeProfile.glossary),
                     fingerprint: UInt64(Date().timeIntervalSince1970 * 1000),
-                    ocrMilliseconds: 0)
+                    ocrMilliseconds: 0, explicitlyRequested: true)
                 screenshotStatus = "识别了 \(blocks.count) 条；请在“整屏文字”查看逐条中文"
             }
         } catch {
