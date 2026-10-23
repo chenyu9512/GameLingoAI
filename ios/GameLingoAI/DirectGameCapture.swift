@@ -739,6 +739,39 @@ final class DirectGameCapture: NSObject, ObservableObject,
                 result = exact
             } else if let cached = translationCache[key] {
                 result = cached
+            } else if profile.provider == .offline && text.contains("\n") {
+                // Each OCR line gets its own on-device translation so the
+                // source and translated lines remain aligned in dense PiP.
+                // Batch requests avoid repeated model/session startup costs.
+                let lines = text.split(separator: "\n").map(String.init)
+                var translated = Array(repeating: "", count: lines.count)
+                var pending: [TranslationSession.Request] = []
+                for (index, line) in lines.enumerated() {
+                    if let exact = profile.glossary[line] {
+                        translated[index] = exact
+                    } else {
+                        pending.append(TranslationSession.Request(
+                            sourceText: line, clientIdentifier: String(index)))
+                    }
+                }
+                if !pending.isEmpty {
+                    let session = TranslationSession(
+                        installedSource: Locale.Language(identifier: profile.language),
+                        target: Locale.Language(identifier: "zh-Hans"))
+                    for start in stride(from: 0, to: pending.count, by: 36) {
+                        let group = Array(pending[start..<min(start + 36, pending.count)])
+                        for try await response in session.translate(batch: group) {
+                            guard revision == translationRevision, !Task.isCancelled else { return }
+                            guard let code = response.clientIdentifier,
+                                  let index = Int(code),
+                                  translated.indices.contains(index) else { continue }
+                            translated[index] = response.targetText
+                        }
+                    }
+                }
+                result = translated.enumerated().map { idx, item in
+                    item.isEmpty ? "［未翻译：\(lines[idx])］" : item
+                }.joined(separator: "\n")
             } else {
                 // Sending text to online providers is opt-in; the persisted
                 // provider defaults to offline and has no automatic failover.
