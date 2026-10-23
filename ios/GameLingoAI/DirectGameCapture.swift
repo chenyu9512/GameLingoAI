@@ -30,18 +30,25 @@ final class DirectGameCapture: NSObject, ObservableObject,
     @Published private(set) var lastFrameAt: Date?
     @Published private(set) var failures = 0
     @Published private(set) var lastError = ""
+    @Published private(set) var detectedLayout: GameFrameLayout = .portrait
+    @Published private(set) var screenDimensions = "等待画面"
+    @Published private(set) var activeRotation: GameScreenRotation = .automatic
 
     private struct Snapshot: Equatable {
         var profileID: UUID
         var name: String
         var language: String
-        var roi: CGRect
+        var portraitROI: CGRect
+        var landscapeROI: CGRect
+        var rotation: GameScreenRotation
         var excluded: CGRect?
         var glossary: [String: String]
         var performance: GamePerformance
 
         static let initial = Snapshot(profileID: UUID(), name: "默认游戏", language: "ja",
-                                      roi: GameOCRBox.dialogue.rect,
+                                      portraitROI: GameOCRBox.dialogue.rect,
+                                      landscapeROI: GameOCRBox.landscapeDialogue.rect,
+                                      rotation: .automatic,
                                       excluded: nil, glossary: [:],
                                       performance: .balanced)
     }
@@ -60,6 +67,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
     private var lastAcceptedAt: TimeInterval = 0
     private var lastFingerprint: UInt64 = 0
     private var lastOCRAt: TimeInterval = 0
+    // Only touched on captureQueue: rotation/dimensions changes reset OCR
+    // stabilisation without confusing previous frames with new geometry.
+    private var lastFrameGeometry = ""
     // Protected by gate; full-screen OCR is independently scheduled and never
     // blocks the faster PiP OCR callback queue.
     private var menuInFlight = false
@@ -105,7 +115,10 @@ final class DirectGameCapture: NSObject, ObservableObject,
     @MainActor
     func configure(profile: GameProfile, performance: GamePerformance) {
         let snapshot = Snapshot(profileID: profile.id, name: profile.name, language: profile.language,
-                                roi: profile.region.rect, excluded: profile.excluded?.rect,
+                                portraitROI: profile.region.rect,
+                                landscapeROI: profile.region(for: .landscape).rect,
+                                rotation: profile.screenRotation,
+                                excluded: profile.excluded?.rect,
                                 glossary: GameLingoStore.glossaryMap(profile.glossary),
                                 performance: performance)
         gate.lock()
@@ -126,6 +139,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         GameMenuCatalog.shared.cancelForProfileChange()
         captureQueue.async { [weak self] in
             self?.lastFingerprint = 0
+            self?.lastFrameGeometry = ""
             self?.candidate = ""
             self?.candidateCount = 0
         }
@@ -283,8 +297,39 @@ final class DirectGameCapture: NSObject, ObservableObject,
             busy = false
             gate.unlock()
         }
-        scheduleMenuScan(buffer, snapshot: snapshot, now: now)
-        let fingerprint = frameFingerprint(buffer, region: snapshot.roi)
+        let geometry = GameCaptureGeometry(
+            width: CVPixelBufferGetWidth(buffer),
+            height: CVPixelBufferGetHeight(buffer),
+            rotation: snapshot.rotation)
+        if geometry.identity != lastFrameGeometry {
+            lastFrameGeometry = geometry.identity
+            lastFingerprint = 0
+            lastOCRAt = 0
+            candidate = ""
+            candidateCount = 0
+            gate.lock()
+            lastMenuFingerprint = 0
+            lastPageFingerprint = 0
+            menuStaticSince = 0
+            lastMenuScannedAt = 0
+            gate.unlock()
+            DispatchQueue.main.async {
+                self.detectedLayout = geometry.layout
+                self.activeRotation = geometry.rotation
+                self.screenDimensions = "\(geometry.width) × \(geometry.height)"
+                // Invalidate translation and static pages from the prior
+                // layout before they can replace a newly rotated screen.
+                self.translationRevision += 1
+                self.pendingTranslation?.cancel()
+                self.pendingTranslation = nil
+                self.lastCompleted = ""
+                GameMenuCatalog.shared.cancelForProfileChange()
+            }
+        }
+        let region = geometry.layout == .portrait
+            ? snapshot.portraitROI : snapshot.landscapeROI
+        scheduleMenuScan(buffer, snapshot: snapshot, geometry: geometry, now: now)
+        let fingerprint = frameFingerprint(buffer, region: geometry.rawRegion(for: region))
         let staticScene = fingerprint != 0 && fingerprint == lastFingerprint
         // Still recheck static frames periodically: failed translations may retry,
         // and the same visual frame may need new state after UI changes.
@@ -299,7 +344,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
         lastOCRAt = now
 
         let startedAt = CFAbsoluteTimeGetCurrent()
-        let recognition = recognize(buffer, using: snapshot)
+        let recognition = recognize(buffer, using: snapshot,
+                                    geometry: geometry, region: region)
         let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000)
         DispatchQueue.main.async {
             self.frames += 1
@@ -352,7 +398,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
     // Stable pages are scanned promptly; animated menus get a periodic
     // fallback scan (8 sec), and the user can request an immediate scan.
     private func scheduleMenuScan(_ buffer: CVPixelBuffer,
-                                  snapshot: Snapshot, now: TimeInterval) {
+                                  snapshot: Snapshot, geometry: GameCaptureGeometry,
+                                  now: TimeInterval) {
         gate.lock()
         let forced = forceMenuScan
         let ready = now >= manualMenuReadyAt
@@ -392,7 +439,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
         menuQueue.async { [weak self] in
             guard let self else { return }
             let started = CFAbsoluteTimeGetCurrent()
-            let textBlocks = self.recognizeFullScreen(buffer, using: snapshot)
+            let textBlocks = self.recognizeFullScreen(buffer, using: snapshot,
+                                                     geometry: geometry)
             let took = Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
             self.gate.lock()
             self.menuInFlight = false
@@ -405,13 +453,15 @@ final class DirectGameCapture: NSObject, ObservableObject,
                     textBlocks, profileID: snapshot.profileID,
                     gameName: snapshot.name, language: snapshot.language,
                     glossary: snapshot.glossary, fingerprint: fingerprint,
-                    ocrMilliseconds: took, explicitlyRequested: forced)
+                    ocrMilliseconds: took, explicitlyRequested: forced,
+                    layout: geometry.layout)
             }
         }
     }
 
     private func recognizeFullScreen(_ buffer: CVPixelBuffer,
-                                     using snapshot: Snapshot) -> [GameMenuBlock] {
+                                     using snapshot: Snapshot,
+                                     geometry: GameCaptureGeometry) -> [GameMenuBlock] {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.minimumTextHeight = 0.006
@@ -421,7 +471,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
         request.regionOfInterest = CGRect(x: 0, y: 0, width: 1, height: 1)
         do {
             try VNImageRequestHandler(cvPixelBuffer: buffer,
-                                     orientation: .up, options: [:]).perform([request])
+                                     orientation: geometry.imageOrientation,
+                                     options: [:]).perform([request])
             let found = (request.results ?? []).compactMap {
                 observation -> (String, CGRect, Double)? in
                 guard let candidate = observation.topCandidates(1).first,
@@ -493,7 +544,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
         return hash
     }
 
-    private func recognize(_ buffer: CVPixelBuffer, using snapshot: Snapshot) -> Recognition {
+    private func recognize(_ buffer: CVPixelBuffer, using snapshot: Snapshot,
+                           geometry: GameCaptureGeometry, region: CGRect) -> Recognition {
         func pass(_ level: VNRequestTextRecognitionLevel) -> Recognition {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = level
@@ -502,9 +554,11 @@ final class DirectGameCapture: NSObject, ObservableObject,
             request.recognitionLanguages = [
                 ["ja": "ja-JP", "en": "en-US", "ko": "ko-KR"][snapshot.language] ?? "ja-JP"
             ]
-            request.regionOfInterest = snapshot.roi
+            request.regionOfInterest = region
             do {
-                try VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up, options: [:])
+                try VNImageRequestHandler(cvPixelBuffer: buffer,
+                                          orientation: geometry.imageOrientation,
+                                          options: [:])
                     .perform([request])
                 let candidates = (request.results ?? []).compactMap {
                     item -> (String, CGFloat, CGFloat, Float)? in
@@ -644,6 +698,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
         Translations: \(translatedCount)
         OCR: \(ocrElapsedMs)ms, confidence: \(Int(ocrConfidence * 100))%
         Translation: \(translationElapsedMs)ms
+        Screen: \(screenDimensions) / \(detectedLayout.title)
+        Rotation setting: \(activeRotation.title)
         Errors: \(failures) / last: \(lastError)
         """
     }
@@ -666,6 +722,11 @@ struct DirectCapturePanel: View {
                     .frame(width: 9, height: 9)
             }
             Text(capture.details).font(.caption).foregroundStyle(.secondary)
+            Label("画面：\(capture.detectedLayout.title) · \(capture.screenDimensions)",
+                  systemImage: "iphone.gen3.radiowaves.left.and.right")
+                .font(.caption).foregroundStyle(.mint)
+            Text("方向校正：\(capture.activeRotation.title)")
+                .font(.caption2).foregroundStyle(.secondary)
             HStack {
                 item("\(capture.scans)", "OCR")
                 item("\(capture.translatedCount)", "翻译")
