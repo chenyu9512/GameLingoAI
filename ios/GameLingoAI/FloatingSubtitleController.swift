@@ -20,6 +20,8 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     @Published private(set) var renderElapsedMs = 0
     @Published private(set) var captureToPiPMs = 0
     @Published private(set) var backpressureCount = 0
+    @Published private(set) var p50CaptureToPiPMs = 0
+    @Published private(set) var p95CaptureToPiPMs = 0
 
     let previewLayer = AVSampleBufferDisplayLayer()
     private var pictureInPicture: AVPictureInPictureController?
@@ -45,6 +47,8 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     private var pendingSample: CMSampleBuffer?
     private var readinessSubscribed = false
     private var lastCaptureTime: TimeInterval = 0
+    private var lastMeasuredCaptureTime: TimeInterval = 0
+    private var latencySamples: [(Date, Int)] = []
     // The requested default is bilingual: game original above, Chinese below.
     private var subtitleMode = "bilingual"
     private var layoutMode = "standard"
@@ -378,9 +382,21 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
             renderer.enqueue(buffer)
             lastDrawAt = CACurrentMediaTime()
             outputFrameCount += 1
-            if lastCaptureTime > 0 {
+            if lastCaptureTime > lastMeasuredCaptureTime {
+                lastMeasuredCaptureTime = lastCaptureTime
                 captureToPiPMs = max(0, Int(
                     (Date().timeIntervalSince1970 - lastCaptureTime) * 1000))
+                let stamp = Date()
+                latencySamples.append((stamp, captureToPiPMs))
+                latencySamples.removeAll {
+                    stamp.timeIntervalSince($0.0) > 60
+                }
+                let sorted = latencySamples.map(\.1).sorted()
+                if !sorted.isEmpty {
+                    p50CaptureToPiPMs = sorted[(sorted.count - 1) / 2]
+                    p95CaptureToPiPMs = sorted[Int(
+                        Double(sorted.count - 1) * 0.95)]
+                }
             }
             if readinessSubscribed {
                 renderer.stopRequestingMediaData()
@@ -394,10 +410,6 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
             renderer.requestMediaDataWhenReady(on: DispatchQueue.main) { [weak self] in
                 guard let self else { return }
                 self.flushPendingFrame()
-                if self.pendingSample == nil {
-                    renderer.stopRequestingMediaData()
-                    self.readinessSubscribed = false
-                }
             }
         }
     }
