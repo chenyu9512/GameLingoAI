@@ -176,6 +176,17 @@ final class GameLingoStore: ObservableObject {
         activeID = profile.id
     }
 
+    // A single tap enables/disables all 89 DQ-specific entries for one game.
+    // Only the flag is saved; no entries are appended to the user's glossary.
+    @discardableResult
+    func setDragonQuestPackEnabled(_ enabled: Bool, for id: UUID) -> Bool {
+        guard let index = profiles.firstIndex(where: { $0.id == id }) else {
+            return false
+        }
+        profiles[index].useDragonQuestLexicon = enabled
+        return true
+    }
+
     func createProfile() {
         let p = GameProfile(name: "新游戏 \(profiles.count + 1)")
         profiles.append(p)
