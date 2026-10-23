@@ -859,8 +859,12 @@ final class DirectGameCapture: NSObject, ObservableObject,
                 var translated = Array(repeating: "", count: lines.count)
                 var pending: [TranslationSession.Request] = []
                 for (index, line) in lines.enumerated() {
+                    let partKey = profile.provider.rawValue + "|" + profile.name
+                        + "|" + profile.language + "|" + line
                     if let exact = profile.glossary[line] {
                         translated[index] = exact
+                    } else if let cached = translationCache[partKey] {
+                        translated[index] = cached
                     } else {
                         pending.append(TranslationSession.Request(
                             sourceText: line, clientIdentifier: String(index)))
@@ -878,6 +882,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
                                   let index = Int(code),
                                   translated.indices.contains(index) else { continue }
                             translated[index] = response.targetText
+                            let partKey = profile.provider.rawValue + "|" + profile.name
+                                + "|" + profile.language + "|" + lines[index]
+                            translationCache[partKey] = response.targetText
                         }
                     }
                 }
