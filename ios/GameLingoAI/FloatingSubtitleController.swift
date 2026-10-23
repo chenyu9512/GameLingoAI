@@ -104,8 +104,9 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
             SubtitlePage(original: $0.0, translated: $0.1)
         }
         guard menuPairs.count != next.count ||
-              zip(menuPairs, next).contains(where: {
-                  $0.original != $1.original || $0.translated != $1.translated
+              zip(menuPairs, next).contains(where: { pair in
+                  pair.0.original != pair.1.original ||
+                  pair.0.translated != pair.1.translated
               }) else { return }
         menuPairs = next
         if layoutMode == "menuPages" { rebuildPages() }
