@@ -486,8 +486,13 @@ final class DirectGameCapture: NSObject, ObservableObject,
         do {
             try GameLanguageSupport.setup(request, language: snapshot.language)
             if snapshot.language == "ja" {
+                // Only bias OCR with the game's enabled terms; a disabled
+                // Dragon Quest pack must not affect this game's recognition.
                 request.customWords = GameRPGDictionary.terms
-                    .filter { $0.category == "勇者斗恶龙专用" }
+                    .filter {
+                        $0.category == GameRPGDictionary.dragonQuestCategory
+                        && snapshot.glossary[$0.japanese] != nil
+                    }
                     .map(\.japanese)
             }
             try VNImageRequestHandler(cvPixelBuffer: buffer,
