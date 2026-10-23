@@ -25,6 +25,10 @@ struct OCRQualitySmoke {
             language: "ja")
         precondition(selected?.text == "ホイミ",
                      "Candidate scoring did not reject corrupted text")
+        precondition(GameOCRQuality.requiredStableFrames(confidence: 0.92, fastMode: true) == 1)
+        precondition(GameOCRQuality.requiredStableFrames(confidence: 0.65, fastMode: true) == 2)
+        precondition(GameOCRQuality.requiredStableFrames(confidence: 0.40, fastMode: true) == 3)
+        precondition(GameOCRQuality.requiredStableFrames(confidence: 0.80, fastMode: false) == 1)
         print("PASS: OCR quality checks (\(cases.count) samples + candidate selection)")
     }
 }
