@@ -23,6 +23,8 @@ struct GameMenuPage: Codable, Identifiable {
     var language: String
     var scannedAt: Date
     var blocks: [GameMenuBlock]
+    // Optional for backwards-compatible decoding of pages saved before 3.2.
+    var layout: GameFrameLayout? = nil
 }
 
 /// A local archive of full-screen OCR pages and previously translated strings.
@@ -95,7 +97,8 @@ final class GameMenuCatalog: ObservableObject {
     func receive(_ recognized: [GameMenuBlock], profileID: UUID,
                  gameName: String, language: String,
                  glossary: [String: String], fingerprint newFingerprint: UInt64,
-                 ocrMilliseconds: Int, explicitlyRequested: Bool = false) {
+                 ocrMilliseconds: Int, explicitlyRequested: Bool = false,
+                 layout: GameFrameLayout = .portrait) {
         guard profileID == GameLingoStore.shared.activeID else { return }
         lastScanMilliseconds = ocrMilliseconds
         guard !recognized.isEmpty else {
@@ -118,6 +121,7 @@ final class GameMenuCatalog: ObservableObject {
         let unchanged = (newFingerprint == fingerprint
             || previousSignature == signature)
             && savedPages.first?.profileID == profileID
+            && savedPages.first?.layout == layout
         if unchanged {
             if isTranslating || savedPages.first?.blocks.allSatisfy({ $0.chinese != nil }) == true {
                 status = "画面文字未改变，沿用已翻译的菜单"
@@ -140,7 +144,8 @@ final class GameMenuCatalog: ObservableObject {
         }
         let pageID = unchanged ? (savedPages.first?.id ?? UUID()) : UUID()
         var page = GameMenuPage(id: pageID, profileID: profileID, gameName: gameName,
-                                language: language, scannedAt: Date(), blocks: prepared)
+                                language: language, scannedAt: Date(), blocks: prepared,
+                                layout: layout)
         savedPages.removeAll { $0.profileID == profileID
             && $0.blocks.map { $0.original } == prepared.map { $0.original } }
         savedPages.insert(page, at: 0)
