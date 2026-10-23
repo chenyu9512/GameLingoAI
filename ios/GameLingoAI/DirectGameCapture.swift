@@ -112,7 +112,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let changed = config != snapshot
         if changed {
             config = snapshot
-            forceMenuScan = true
+            forceMenuScan = false
             manualMenuReadyAt = 0
             lastMenuScannedAt = 0
             lastMenuFingerprint = 0
@@ -366,6 +366,11 @@ final class DirectGameCapture: NSObject, ObservableObject,
 
         let fingerprint = frameFingerprint(buffer, region: CGRect(x: 0, y: 0, width: 1, height: 1))
         gate.lock()
+        if lastMenuScannedAt == 0 {
+            // Start the auto-scan clock on the first actual game frame,
+            // not at Unix epoch 0 (which would trigger the fallback instantly).
+            lastMenuScannedAt = now
+        }
         if fingerprint != lastMenuFingerprint {
             lastMenuFingerprint = fingerprint
             menuStaticSince = now
