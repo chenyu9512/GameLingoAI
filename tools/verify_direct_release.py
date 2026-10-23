@@ -124,7 +124,12 @@ checks = {
     "bilingual default": "subtitleMode = stored?.subtitleMode ?? .bilingual" in models,
     "latest-only translation revision": "translationRevision" in capture
     and "revision == translationRevision" in capture,
-    "region-based OCR": "request.regionOfInterest = snapshot.roi" in capture,
+    "region-based OCR":
+        "let region = geometry.layout == .portrait" in capture
+        and "snapshot.portraitROI : snapshot.landscapeROI" in capture
+        and "geometry.rawRegion(for: region)" in capture
+        and "geometry: geometry, region: region" in capture
+        and "request.regionOfInterest = region" in capture,
     "local history only": "history.insert(line, at: 0)" in models,
     "no ReplayKit compiled in direct target": "src_app+([] if DIRECT else src_shared)" in generator,
     "no broadcast extension in direct target":
