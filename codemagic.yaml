@@ -89,7 +89,8 @@ workflows:
             ios/GameLingoAI/GameMenuCatalog.swift \
             ios/GameLingoAI/DirectHomeView.swift \
             ios/GameLingoAI/DirectGameCapture.swift \
-            ios/GameLingoAI/FloatingSubtitleController.swift
+            ios/GameLingoAI/FloatingSubtitleController.swift \
+            ios/GameLingoAI/GamePiPFrameRenderer.swift
       - name: Compile direct-capture iPhone app
         script: |
           set -e
