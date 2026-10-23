@@ -35,6 +35,8 @@ struct GameProfile: Codable, Identifiable, Equatable {
     var useDragonQuestLexicon: Bool? = nil
     // Optional normalized region of screen to ignore (e.g. HUD or PiP location).
     var excluded: GameOCRBox? = nil
+    var bottomBoost: Bool? = nil
+    var bottomScanEnabled: Bool { bottomBoost ?? true }
 
     var screenRotation: GameScreenRotation { rotation ?? .automatic }
     var dragonQuestEnabled: Bool {
@@ -119,6 +121,9 @@ final class GameLingoStore: ObservableObject {
         var performance: GamePerformance
         var provider: GameTranslationProvider?
         var endpoint: GameTranslationEndpoint?
+        var autoplay: Bool?
+        var playbackSeconds: Double?
+        var readAloud: Bool?
         var pipLayout: GamePiPLayout
         var subtitleMode: GameSubtitleMode
         var fontScale: Double
@@ -131,6 +136,9 @@ final class GameLingoStore: ObservableObject {
     @Published var performance: GamePerformance { didSet { persist() } }
     @Published var provider: GameTranslationProvider { didSet { persist() } }
     @Published var endpoint: GameTranslationEndpoint { didSet { persist() } }
+    @Published var autoplay: Bool { didSet { persist() } }
+    @Published var playbackSeconds: Double { didSet { persist() } }
+    @Published var readAloud: Bool { didSet { persist() } }
     @Published var pipLayout: GamePiPLayout { didSet { persist() } }
     @Published var subtitleMode: GameSubtitleMode { didSet { persist() } }
     @Published var fontScale: Double { didSet { persist() } }
@@ -151,6 +159,9 @@ final class GameLingoStore: ObservableObject {
         performance = stored?.performance ?? .balanced
         provider = stored?.provider ?? .offline
         endpoint = stored?.endpoint ?? GameTranslationEndpoint()
+        autoplay = stored?.autoplay ?? true
+        playbackSeconds = stored?.playbackSeconds ?? 5.0
+        readAloud = stored?.readAloud ?? false
         pipLayout = stored?.pipLayout ?? .standard
         subtitleMode = stored?.subtitleMode ?? .bilingual
         fontScale = stored?.fontScale
@@ -254,7 +265,8 @@ final class GameLingoStore: ObservableObject {
     private func persist() {
         let state = Saved(profiles: profiles, activeID: activeID,
                           performance: performance, provider: provider, endpoint: endpoint,
-                          pipLayout: pipLayout,
+                          autoplay: autoplay, playbackSeconds: playbackSeconds,
+                           readAloud: readAloud, pipLayout: pipLayout,
                           subtitleMode: subtitleMode, fontScale: fontScale,
                           history: history, onboardingComplete: onboardingComplete)
         if let data = try? JSONEncoder().encode(state) {
