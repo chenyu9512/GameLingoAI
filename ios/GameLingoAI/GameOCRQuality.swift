@@ -58,6 +58,15 @@ enum GameOCRQuality {
             .max { $0.score < $1.score }
     }
 
+    /// Fast mode is a latency preference, not permission to display a
+    /// low-confidence single-frame hallucination. High-confidence dialogue
+    /// still appears immediately, while noisy frames must stabilize.
+    static func requiredStableFrames(confidence: Double, fastMode: Bool) -> Int {
+        if confidence < 0.48 { return 3 }
+        if fastMode { return confidence >= 0.86 ? 1 : 2 }
+        return confidence >= 0.78 ? 1 : 2
+    }
+
     static func isSimilar(_ lhs: String, _ rhs: String) -> Bool {
         if lhs == rhs { return true }
         let a = Array(lhs), b = Array(rhs)
