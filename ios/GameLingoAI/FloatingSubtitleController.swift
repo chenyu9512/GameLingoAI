@@ -26,6 +26,10 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     private var currentOriginal = "おかえりなさい。"
     private var currentText = "欢迎回来。"
     private var pages = [SubtitlePage(original: "おかえりなさい。", translated: "欢迎回来。")]
+    private var recentPairs = [SubtitlePage(original: "おかえりなさい。", translated: "欢迎回来。")]
+    private var menuPairs: [SubtitlePage] = []
+    private var pageGroups: [[SubtitlePage]] = []
+    private var lastDrawAt: CFTimeInterval = 0
     // The requested default is bilingual: game original above, Chinese below.
     private var subtitleMode = "bilingual"
     private var layoutMode = "standard"
@@ -79,25 +83,72 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         guard nextOriginal != currentOriginal || nextTranslated != currentText else { return }
         currentOriginal = nextOriginal
         currentText = nextTranslated.isEmpty ? "等待中文字幕…" : nextTranslated
+        recentPairs.append(SubtitlePage(original: currentOriginal, translated: currentText))
+        if recentPairs.count > 24 { recentPairs.removeFirst(recentPairs.count - 24) }
         rebuildPages()
     }
 
     func setMode(_ mode: String, layout: String) {
-        subtitleMode = ["bilingual", "chinese", "original"].contains(mode) ? mode : "bilingual"
-        layoutMode = ["compact", "standard", "learning"].contains(layout) ? layout : "standard"
+        let newMode = ["bilingual", "chinese", "original"].contains(mode) ? mode : "bilingual"
+        let layouts = ["compact", "standard", "learning", "multiBilingual",
+                       "denseChinese", "menuPages"]
+        let newLayout = layouts.contains(layout) ? layout : "standard"
+        guard subtitleMode != newMode || layoutMode != newLayout else { return }
+        subtitleMode = newMode
+        layoutMode = newLayout
         rebuildPages()
+    }
+
+    func setMenuEntries(_ entries: [(String, String)]) {
+        let next = entries.map {
+            SubtitlePage(original: $0.0, translated: $0.1)
+        }
+        guard menuPairs.count != next.count ||
+              zip(menuPairs, next).contains(where: {
+                  $0.original != $1.original || $0.translated != $1.translated
+              }) else { return }
+        menuPairs = next
+        if layoutMode == "menuPages" { rebuildPages() }
     }
 
     func setFontScale(_ scale: CGFloat) {
-        fontScale = min(1.4, max(0.8, scale))
+        let next = min(1.4, max(0.8, scale))
+        guard abs(next - fontScale) > 0.001 else { return }
+        fontScale = next
         rebuildPages()
     }
 
+    private var pageCount: Int {
+        isGroupedLayout ? max(1, pageGroups.count) : max(1, pages.count)
+    }
+    private var isGroupedLayout: Bool {
+        ["multiBilingual", "denseChinese", "menuPages"].contains(layoutMode)
+    }
     private func rebuildPages() {
         pages = makeBilingualPages()
-        pageIndex = 0
+        if layoutMode == "menuPages" {
+            pageGroups = chunk(menuPairs.isEmpty ? recentPairs.suffix(1).map { $0 } : menuPairs,
+                               count: 4)
+        } else if layoutMode == "denseChinese" {
+            pageGroups = chunk(Array(recentPairs.suffix(20)), count: 5)
+        } else if layoutMode == "multiBilingual" {
+            pageGroups = chunk(Array(recentPairs.suffix(9)), count: 3)
+        } else {
+            pageGroups = []
+        }
+        // Newest group first; old history is still kept in the app.
+        pageIndex = isGroupedLayout ? max(0, pageGroups.count - 1) : 0
         pageChangedAt = CACurrentMediaTime()
         renderFrame()
+    }
+
+    private func chunk(_ source: [SubtitlePage], count: Int) -> [[SubtitlePage]] {
+        guard !source.isEmpty else {
+            return [[SubtitlePage(original: currentOriginal, translated: currentText)]]
+        }
+        return stride(from: 0, to: source.count, by: count).map {
+            Array(source[$0..<min(source.count, $0 + count)])
+        }
     }
 
     func start() {
@@ -139,16 +190,21 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
 
     private func beginFrameTimer() {
         frameTimer?.invalidate()
-        // Feed current subtitle frames so PiP remains visibly up to date.
-        frameTimer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
+        // Render on content/page changes, with only a rare heartbeat to keep
+        // the system's sample-buffer PiP layer alive. No 0.8-second full render.
+        frameTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self else { return }
-            if self.pages.count > 1 && CACurrentMediaTime() - self.pageChangedAt >= 3.2 {
-                self.pageIndex = (self.pageIndex + 1) % self.pages.count
-                self.pageChangedAt = CACurrentMediaTime()
+            let now = CACurrentMediaTime()
+            let interval: CFTimeInterval = self.isGroupedLayout ? 5.0 : 3.8
+            if self.pageCount > 1 && now - self.pageChangedAt >= interval {
+                self.pageIndex = (self.pageIndex + 1) % self.pageCount
+                self.pageChangedAt = now
+                self.renderFrame()
+            } else if now - self.lastDrawAt >= 9.0 {
+                self.renderFrame()
             }
-            self.renderFrame()
         }
-        frameTimer?.tolerance = 0.12
+        frameTimer?.tolerance = 0.2
     }
 
     // Keep the two languages in a single frame. For longer lines, display
@@ -267,6 +323,49 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
                     context: nil)
             }
 
+            if isGroupedLayout {
+                let group = pageGroups.indices.contains(pageIndex)
+                    ? pageGroups[pageIndex]
+                    : [SubtitlePage(original: currentOriginal, translated: currentText)]
+                let areaTop: CGFloat = 12
+                let availableHeight = size.height - 24
+                let heightPerRow = availableHeight / CGFloat(max(group.count, 1))
+                for (idx, entry) in group.enumerated() {
+                    let top = areaTop + CGFloat(idx) * heightPerRow
+                    let row = CGRect(x: 16, y: top,
+                                     width: size.width - 32, height: heightPerRow)
+                    if layoutMode == "denseChinese" {
+                        drawCentered(subtitleMode == "original" ? entry.original : entry.translated,
+                                     in: row.insetBy(dx: 3, dy: 5), color: .white,
+                                     maximum: 36 * fontScale, minimum: 19 * fontScale,
+                                     weight: .semibold)
+                    } else if subtitleMode == "chinese" || subtitleMode == "original" {
+                        let text = subtitleMode == "original" ? entry.original : entry.translated
+                        drawCentered(text, in: row.insetBy(dx: 3, dy: 5), color: .white,
+                                     maximum: 34 * fontScale, minimum: 17 * fontScale,
+                                     weight: .semibold)
+                    } else {
+                        let originalRegion = CGRect(x: row.minX, y: row.minY + 2,
+                            width: row.width, height: row.height * 0.42)
+                        let chineseRegion = CGRect(x: row.minX,
+                            y: row.minY + row.height * 0.43,
+                            width: row.width, height: row.height * 0.55)
+                        drawCentered(entry.original, in: originalRegion,
+                                     color: UIColor(red: 0.42, green: 0.94,
+                                                    blue: 0.85, alpha: 1),
+                                     maximum: 29 * fontScale, minimum: 14 * fontScale,
+                                     weight: .medium)
+                        drawCentered(entry.translated, in: chineseRegion,
+                                     color: .white, maximum: 32 * fontScale,
+                                     minimum: 17 * fontScale, weight: .semibold)
+                    }
+                    if idx < group.count - 1 {
+                        UIColor.white.withAlphaComponent(0.1).setFill()
+                        cg.fill(CGRect(x: 32, y: row.maxY - 1,
+                                       width: size.width - 64, height: 1))
+                    }
+                }
+            } else {
             if showOriginal {
                 let fontSize: CGFloat = layoutMode == "compact" ? 37 : 44
                 drawCentered(page.original, in: origArea,
@@ -281,9 +380,10 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
                              maximum: fontSize * fontScale,
                              minimum: 38 * fontScale, weight: .bold)
             }
+            }
             // Nonverbal progress indicator for subtitles that require pages.
-            if pages.count > 1 {
-                let progressWidth = size.width / CGFloat(pages.count)
+            if pageCount > 1 {
+                let progressWidth = size.width / CGFloat(pageCount)
                 UIColor(red: 0.24, green: 0.92, blue: 0.78, alpha: 0.85).setFill()
                 cg.fill(CGRect(x: CGFloat(pageIndex) * progressWidth,
                                y: size.height - 5,
@@ -322,6 +422,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
               let format = formatDescription else { return }
         // Use monotonic increasing timestamps when the content has not changed.
         let current = CACurrentMediaTime()
+        lastDrawAt = current
         let stamp = max(current, lastFrameTime + 0.01)
         lastFrameTime = stamp
         var timing = CMSampleTimingInfo(duration: CMTime(value: 1, timescale: 1),
