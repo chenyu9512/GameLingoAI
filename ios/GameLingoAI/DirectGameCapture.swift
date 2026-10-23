@@ -31,7 +31,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
     @Published private(set) var failures = 0
     @Published private(set) var lastError = ""
 
-    private struct Snapshot {
+    private struct Snapshot: Equatable {
         var profileID: UUID
         var name: String
         var language: String
@@ -109,14 +109,20 @@ final class DirectGameCapture: NSObject, ObservableObject,
                                 glossary: GameLingoStore.glossaryMap(profile.glossary),
                                 performance: performance)
         gate.lock()
-        config = snapshot
-        forceMenuScan = true
-        manualMenuReadyAt = 0
-        lastMenuScannedAt = 0
-        lastMenuFingerprint = 0
-        lastPageFingerprint = 0
-        menuStaticSince = 0
+        let changed = config != snapshot
+        if changed {
+            config = snapshot
+            forceMenuScan = true
+            manualMenuReadyAt = 0
+            lastMenuScannedAt = 0
+            lastMenuFingerprint = 0
+            lastPageFingerprint = 0
+            menuStaticSince = 0
+        }
         gate.unlock()
+        // A tab change or SwiftUI view reappearance must not restart OCR,
+        // cancel a menu batch, or wipe the already translated dialogue.
+        guard changed else { return }
         GameMenuCatalog.shared.cancelForProfileChange()
         captureQueue.async { [weak self] in
             self?.lastFingerprint = 0
