@@ -488,10 +488,14 @@ final class DirectGameCapture: NSObject, ObservableObject,
         request.recognitionLevel = .accurate
         request.minimumTextHeight = 0.006
         request.usesLanguageCorrection = true
-        let languages = ["ja": "ja-JP", "en": "en-US", "ko": "ko-KR"]
-        request.recognitionLanguages = [languages[snapshot.language] ?? "ja-JP"]
         request.regionOfInterest = CGRect(x: 0, y: 0, width: 1, height: 1)
         do {
+            try GameLanguageSupport.setup(request, language: snapshot.language)
+            if snapshot.language == "ja" {
+                request.customWords = GameRPGDictionary.terms
+                    .filter { $0.category == "勇者斗恶龙专用" }
+                    .map(\.japanese)
+            }
             try VNImageRequestHandler(cvPixelBuffer: buffer,
                                      orientation: geometry.imageOrientation,
                                      options: [:]).perform([request])
@@ -573,11 +577,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
             request.recognitionLevel = level
             request.usesLanguageCorrection = true
             request.minimumTextHeight = 0.012
-            request.recognitionLanguages = [
-                ["ja": "ja-JP", "en": "en-US", "ko": "ko-KR"][snapshot.language] ?? "ja-JP"
-            ]
             request.regionOfInterest = region
             do {
+                try GameLanguageSupport.setup(request, language: snapshot.language)
                 try VNImageRequestHandler(cvPixelBuffer: buffer,
                                           orientation: geometry.imageOrientation,
                                           options: [:])
