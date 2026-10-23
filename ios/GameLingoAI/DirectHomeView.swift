@@ -132,7 +132,7 @@ struct DirectHomeView: View {
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text("GameLingo").font(.system(size: 27, weight: .bold, design: .rounded))
-                Text("DIRECT 3.1  ·  双通道游戏翻译")
+                Text("DIRECT 3.2  ·  横竖屏自动识别")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(mint)
             }
@@ -908,7 +908,7 @@ struct DirectHomeView: View {
             VStack(alignment: .leading, spacing: 19) {
                 Label("GameLingo 双语模式", systemImage: "captions.bubble.fill")
                     .font(.title2.bold()).foregroundStyle(mint)
-                Text("① 准备系统离线语言包，先用“双语测试”检查 PiP 小窗。\n\n② 授权捕获整个屏幕后，回到游戏即可看到快速双语对白。\n\n③ 打开游戏菜单，静止片刻后系统自动补充全屏扫描；也可在“整屏文字”页手动触发。\n\n④ 在“整屏文字”查看所有已识别的菜单项目，逐条翻译并保存；PiP 不会强行塞入整页菜单。\n\n⑤ 游戏配置中可调整对白 OCR 区域、排除区域与术语表。")
+                Text("① 准备系统离线语言包，用“双语测试”检查 PiP。\n\n② 授权捕获整个屏幕，切回游戏；程序按采集画面自动判断竖屏和横屏。\n\n③ 在“游戏配置”中分别调整竖屏与横屏识别区域。如果文字横着显示，可以设置左转或右转 90°。\n\n④ 打开静态游戏菜单，等待全屏扫描，然后在“整屏文字”查看完整双语清单。\n\n⑤ 更改方向后保存配置，新的 OCR 画面会自动使用相应识别框。")
                     .lineSpacing(4)
                 Text("限制：系统可能暂停后台翻译，部分游戏可能限制屏幕录制；PiP 大小和位置由 iOS 管理。")
                     .font(.caption).foregroundStyle(.secondary)
