@@ -145,7 +145,7 @@ struct DirectHomeView: View {
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text("GameLingo").font(.system(size: 27, weight: .bold, design: .rounded))
-                Text("DIRECT 3.3.1  ·  一键游戏术语包")
+                Text("DIRECT 3.4  ·  极速 OCR / 多行双语")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(mint)
             }
@@ -1045,7 +1045,7 @@ struct DirectHomeView: View {
             VStack(alignment: .leading, spacing: 19) {
                 Label("GameLingo 双语模式", systemImage: "captions.bubble.fill")
                     .font(.title2.bold()).foregroundStyle(mint)
-                Text("① 按需准备系统语言包（IPA 不内置模型），用“双语测试”检查 PiP。\n\n② 授权整个屏幕，回到游戏；程序自动识别横竖屏与对白。\n\n③ 游戏配置可分别编辑横竖屏识别框，并浏览 RPG / 勇者斗恶龙词库。\n\n④ 默认完全本机翻译。如需在线服务，必须在游戏配置中先完成联网测试并主动启用；该模式会向第三方发送 OCR 文字。\n\n⑤ 菜单全文译文在“整屏文字”查看；导入的截图始终在本机翻译。")
+                Text("① 按需准备系统语言包（IPA 不内置模型），用“双语测试”检查 PiP。\n\n② 授权整个屏幕，回到游戏；程序自动识别横竖屏并优先处理最新画面。\n\n③ 游戏配置 → 小窗排版，可选多行双语、中文高密度或菜单分页。\n\n④ 游戏配置可编辑横竖屏 OCR 区域，并一键启用勇者斗恶龙术语包。默认仍为本机翻译。\n\n⑤ “运行诊断”可对照原始 OCR、过滤后的原文和译文；“整屏文字”可查看完整菜单结果。")
                     .lineSpacing(4)
                 Text("限制：系统可能暂停后台翻译，部分游戏可能限制屏幕录制；PiP 大小和位置由 iOS 管理。")
                     .font(.caption).foregroundStyle(.secondary)
