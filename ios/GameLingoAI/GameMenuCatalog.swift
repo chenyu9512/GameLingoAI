@@ -147,7 +147,11 @@ final class GameMenuCatalog: ObservableObject {
         job?.cancel()
 
         var prepared = recognized
-        let before = savedPages.first?.blocks ?? []
+        let before = savedPages.first(where: {
+            $0.profileID == profileID && $0.language == language
+            && $0.layout == layout && ($0.provider ?? .offline) == provider
+            && ($0.endpointID ?? "") == endpointID
+        })?.blocks ?? []
         var cacheHits = 0
         for i in prepared.indices {
             let original = prepared[i].original
