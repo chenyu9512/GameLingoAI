@@ -21,6 +21,7 @@ struct DirectHomeView: View {
     @State private var editingLayout: GameFrameLayout = .portrait
     @State private var translationPreparation: TranslationSession.Configuration?
     @State private var preparationState = "首次使用请准备系统离线语言包"
+    @State private var downloadSourceLanguage = "ja"
     @State private var screenshot: PhotosPickerItem?
     @State private var screenshotText = ""
     @State private var screenshotResult = ""
@@ -61,6 +62,7 @@ struct DirectHomeView: View {
         .onAppear {
             capture.setHostAppForeground(true)
             profileDraft = store.activeProfile
+            downloadSourceLanguage = store.activeProfile.language
             updateCaptureConfiguration()
             configureOverlay()
             if !store.onboardingComplete { showingOnboarding = true }
@@ -73,6 +75,11 @@ struct DirectHomeView: View {
             updateCaptureConfiguration()
         }
         .onChange(of: store.profiles) { _, _ in updateCaptureConfiguration() }
+        .onChange(of: store.provider) { _, _ in
+            updateCaptureConfiguration()
+            menuCatalog.cancelForProfileChange()
+        }
+        .onChange(of: store.endpoint) { _, _ in updateCaptureConfiguration() }
         .onChange(of: store.performance) { _, _ in updateCaptureConfiguration() }
         .onChange(of: store.fontScale) { _, _ in configureOverlay() }
         .onChange(of: store.pipLayout) { _, _ in configureOverlay() }
@@ -152,9 +159,13 @@ struct DirectHomeView: View {
                     Image(systemName: "checkmark.shield.fill").foregroundStyle(mint)
                     Text("单 App 直采 · 双语模式").font(.subheadline.bold())
                     Spacer()
-                    Text("离线").font(.caption.bold()).foregroundStyle(mint)
+                    Text(store.provider == .offline ? "本机" : "在线已开启")
+                        .font(.caption.bold())
+                        .foregroundStyle(store.provider == .offline ? mint : .orange)
                 }
-                Text("上方游戏原文，下方中文翻译。自动适应竖屏、横屏游戏。所有 OCR 与翻译在本机进行。")
+                Text(store.provider == .offline
+                    ? "原文在上、中文在下。横竖屏自动适配；默认完全本机翻译。"
+                    : "原文在上、中文在下。你已主动开启在线模式：识别出的文字会发送到选定的翻译服务器，截图不会上传。")
                     .font(.caption).foregroundStyle(.white.opacity(0.73))
             }
 
@@ -179,15 +190,45 @@ struct DirectHomeView: View {
                         .font(.caption.monospacedDigit())
                 }
                 .font(.caption).foregroundStyle(.white.opacity(0.67))
+                Text("按需下载语言包（不随 IPA 内置）")
+                    .font(.caption.bold()).foregroundStyle(mint)
+                TextField("源语言代码，如 ja、en、ko、fr、de", text: $downloadSourceLanguage)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .textFieldStyle(.roundedBorder)
+                Picker("快速选择语言包", selection: $downloadSourceLanguage) {
+                    Text("日语 ja").tag("ja")
+                    Text("英语 en").tag("en")
+                    Text("韩语 ko").tag("ko")
+                    Text("法语 fr").tag("fr")
+                    Text("德语 de").tag("de")
+                    Text("西班牙语 es").tag("es")
+                    Text("意大利语 it").tag("it")
+                    Text("葡萄牙语 pt").tag("pt")
+                    Text("俄语 ru").tag("ru")
+                }.pickerStyle(.menu).tint(mint)
                 Button {
+                    let code = downloadSourceLanguage
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !code.isEmpty else {
+                        preparationState = "请先填写 BCP-47 语言代码"
+                        return
+                    }
+                    guard code != "zh-Hans" else {
+                        preparationState = "源语言与目标中文相同，无需下载翻译包"
+                        return
+                    }
                     translationPreparation = TranslationSession.Configuration(
-                        source: Locale.Language(identifier: store.activeProfile.language),
+                        source: Locale.Language(identifier: code),
                         target: Locale.Language(identifier: "zh-Hans"))
+                    preparationState = "正在请求系统安装对应语言资源…"
                 } label: {
-                    Label("准备 / 下载系统语言包", systemImage: "arrow.down.circle")
+                    Label("按需准备 / 下载所选系统语言", systemImage: "arrow.down.circle")
                         .frame(maxWidth: .infinity)
                 }.buttonStyle(.bordered)
                 Text(preparationState).font(.caption2).foregroundStyle(.white.opacity(0.68))
+                Text("语言由 iOS Translation 管理；需要用户确认和网络下载。非所有语言对都受设备支持。下载后在游戏配置中选择同一源语言。")
+                    .font(.caption2).foregroundStyle(.white.opacity(0.65))
             }
 
             panel {
@@ -440,11 +481,21 @@ struct DirectHomeView: View {
                 }
                 TextField("游戏名称", text: $profileDraft.name)
                     .textFieldStyle(.roundedBorder)
-                Picker("游戏原语言", selection: $profileDraft.language) {
+                Picker("常用游戏语言", selection: $profileDraft.language) {
                     Text("日语").tag("ja")
                     Text("英语").tag("en")
                     Text("韩语").tag("ko")
-                }.pickerStyle(.segmented)
+                    Text("法语").tag("fr")
+                    Text("德语").tag("de")
+                    Text("西班牙语").tag("es")
+                    Text("意大利语").tag("it")
+                    Text("俄语").tag("ru")
+                    Text("葡萄牙语").tag("pt")
+                }.pickerStyle(.menu)
+                TextField("自定义 BCP-47 语言代码", text: $profileDraft.language)
+                    .textFieldStyle(.roundedBorder)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
             }
 
             panel {
@@ -525,6 +576,31 @@ struct DirectHomeView: View {
                     .scrollContentBackground(.hidden)
                     .padding(7)
                     .background(.black.opacity(0.22), in: RoundedRectangle(cornerRadius: 10))
+            }
+
+            panel {
+                Toggle(isOn: Binding(
+                    get: { profileDraft.dragonQuestEnabled },
+                    set: { profileDraft.useDragonQuestLexicon = $0 })) {
+                    Label("勇者斗恶龙专用术语", systemImage: "book.closed")
+                        .font(.headline)
+                }.tint(mint)
+                Text("内置原创日语 RPG 常用句和《勇者斗恶龙》的短术语名称。游戏名称包含勇者斗恶龙 / Dragon Quest 时默认启用。")
+                    .font(.caption).foregroundStyle(.white.opacity(0.69))
+                GameRPGDictionaryView { term in
+                    let line = term.japanese + "=" + term.chinese
+                    let existing = profileDraft.glossary.components(separatedBy: .newlines)
+                    if !existing.contains(line) {
+                        if !profileDraft.glossary.isEmpty {
+                            profileDraft.glossary += "\n"
+                        }
+                        profileDraft.glossary += line
+                    }
+                }
+            }
+
+            panel {
+                GameTranslationSettingsView()
             }
 
             panel {
@@ -832,7 +908,9 @@ struct DirectHomeView: View {
     }
 
     private func languageLabel(_ language: String) -> String {
-        ["ja": "日语", "en": "英语", "ko": "韩语"][language] ?? language
+        ["ja": "日语", "en": "英语", "ko": "韩语",
+         "fr": "法语", "de": "德语", "es": "西班牙语",
+         "pt": "葡萄牙语", "it": "意大利语", "ru": "俄语"][language] ?? language
     }
 
     private func updateCaptureConfiguration() {
