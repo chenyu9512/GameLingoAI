@@ -505,6 +505,28 @@ enum GameRPGDictionary {
         return mapping[key]
     }
 
+    static let dragonQuestCategory = "勇者斗恶龙专用"
+
+    static var dragonQuestTermCount: Int {
+        terms.filter { $0.category == dragonQuestCategory }.count
+    }
+
+    // Resolve the entire built-in pack without copying entries into the user's
+    // editable glossary. Custom terms retain priority and remain untouched.
+    static func glossary(for profile: GameProfile) -> [String: String] {
+        var result: [String: String] = [:]
+        for term in terms {
+            if term.category == dragonQuestCategory && !profile.dragonQuestEnabled {
+                continue
+            }
+            result[term.japanese] = term.chinese
+        }
+        result.merge(GameLingoStore.glossaryMap(profile.glossary)) {
+            _, userTranslation in userTranslation
+        }
+        return result
+    }
+
     static var categories: [String] {
         Array(Set(terms.map(\.category))).sorted()
     }
