@@ -1,3 +1,40 @@
+# GameLingo Direct 3.3 · 免费在线翻译接口（可选）+ 语言按需下载 + RPG 游戏词库
+
+**2026-10-23 升级。仍需 Codemagic Xcode 27.1 真正编译及 SideStore 真机验收。**
+
+## 翻译与隐私
+
+- **默认离线**：应用的默认 provider 为 \`offline\`。文本由 iOS Translation 框架处理，图片 OCR 由 Vision 处理；不打包内置语言模型，也不把任何屏幕截图上传给翻译服务。
+- **MyMemory（可选）**：官方文档 https://mymemory.translated.net/doc/spec.php；\`GET https://api.mymemory.translated.net/get?q=...&langpair=ja|zh-CN\`。匿名额度每天约 **5,000 字符**，\`q\` 每次 **500 字节**。代码主动按 Unicode UTF-8 拆分为每段 ≤440 字节，并把每天计数保护上限定为 4,900 字符；超过额度不自动转其他在线服务。接口可变、无服务保证。
+- **LibreTranslate 兼容服务（可选）**：\`POST /translate\` 的 JSON 请求，支持用户自填 HTTPS 地址和 API key。官方 libretranslate.com 的托管服务通常需要付费密钥；自托管或其他实例的免费条件以提供商为准。文档 https://docs.libretranslate.com/guides/api_usage/
+- **自定义 REST JSON API（可选）**：输入完整 HTTPS URL、\`POST\` 的文字/源语言/目标语言字段、返回结果的点号路径（含数组索引）、鉴权请求头/前缀。兼容这类格式的 API；**不是任意供应商所有协议的通用适配器**。API 密钥在 iOS Keychain 中保存，不进入 \`UserDefaults\` 或项目源码。
+- **明确同意与测试**：主 UI 的“游戏配置 → 翻译引擎与自定义 API”中，选择候选在线服务并点击“测试并启用”，只有得到非空且不同于原文的测试译文才切换在线模式；测试使用原创短句。随时可一键切回离线。在线模式下，**OCR 识别出的文本会被提交给第三方服务器**，请勿使用敏感数据；不会上传截图。
+- **实际联网验证状态**：官方协议、限额和第三方 2026-10-22 可用性记录已核实。但本环境对 MyMemory 发起的实时 GET 请求由于网络 DNS 不可用而失败，因此**尚不能声称自行已成功调用**。iPhone 内提供了实际 API 联网测试，不会在未测试的情况下自动开启在线模式。
+
+## 语言包
+
+不将任何下载模型、语言数据或私有密钥打进 IPA。进入“实时 → 按需下载语言包”，输入 BCP-47 源语言代码，例如 \`ja\`、\`en\`、\`ko\`、\`fr\`、\`de\` 等，点击准备后通过 Apple \`TranslationSession.prepareTranslation()\` 请求系统下载对应源语言/简体中文资源，用户需确认。**不保证所有语言对在所有 iPhone 上得到 iOS 支持**。Vision OCR 与 Translation 是独立的语言支持列表；OCR 根据系统支持的 Vision 语言区域代码匹配，不再无条件回落到日语。
+
+## 日语游戏术语
+
+源码 \`GameRPGDictionary.swift\` 内置 **474 条独立日语词条**，涵盖：基本菜单、战斗行动、任务探索、装备道具、职业社交、《勇者斗恶龙》魔法/怪物/系统术语，以及由本项目独立撰写的原创 RPG 场景提示。每个词条包含日文、中文译法和分类；界面支持搜索、分类浏览、加入游戏自定义术语。短名称只是参考译法，不包含原作成段的剧情对白；游戏译名以具体发行地区版本为准。短文本精确命中时直接返回词库中文，**优先级：玩家自定义术语 > 内置术语 > 翻译引擎**。使用《勇者斗恶龙》专属术语的开关由游戏名自动判断，也能手动开启/关闭。
+
+## 与既有功能的兼容性
+
+保持 iOS 27 单 App ScreenCaptureKit 直采、横竖屏 OCR、PiP 双语、静态全屏菜单扫描、游戏配置和本地历史记录。不加 App Groups 或 ReplayKit 扩展。在线模式的游戏文本翻译缓存按 provider 分开，不会从离线模式误复用；菜单批量离线翻译的现有流程继续保留。之前保存的游戏数据会尝试兼容解码。
+
+## SideStore 构建
+
+1. GitHub \`main\` 最新提交 → Codemagic \`ios-direct-unsigned\` → Xcode 27.1。
+2. 先运行静态发布检查和包含新增文件的 Swift 语法解析；完整 Swift 编译若失败可下载 \`artifacts/compiler-errors-direct.txt\`。
+3. 成功后下载 \`GameLingoAI-Direct-iOS27-unsigned.ipa\`，用 SideStore 安装，应用名称为 **GameLingo Direct**。
+4. 先验证默认离线和语言资源按需下载，再在“游戏配置”测试选用的在线 API；检测联网失败时按提示保留离线。
+5. 分别测试双语 PiP、全屏静态菜单、竖横屏切换、首次启动迁移、Keychain 保存及 MyMemory 额度错误处理。
+
+**静态检查通过并不证明构建成功，也不证明真机 PiP/后台翻译/第三方 HTTP 可用。** 用户须以 Codemagic 和 iPhone 的运行反馈为准。
+
+---
+
 # GameLingo Direct 3.2 · 竖屏/横屏自动识别
 
 **2026-10-23 源码更新；等待 Codemagic 和真实 iPhone 验证。** 保留 iOS 27 ScreenCaptureKit、Vision、离线 Translation、双语 PiP、全屏菜单清单与 SideStore 单 App 安装方式。
