@@ -26,6 +26,7 @@ struct GameMenuPage: Codable, Identifiable {
     // Optional for backwards-compatible decoding of pages saved before 3.2.
     var layout: GameFrameLayout? = nil
     var provider: GameTranslationProvider? = nil
+    var endpointID: String? = nil
 }
 
 /// A local archive of full-screen OCR pages and previously translated strings.
@@ -117,6 +118,7 @@ final class GameMenuCatalog: ObservableObject {
         // complete menu translations available when the user returns to the app.
         let provider = GameLingoStore.shared.provider
         let endpoint = GameLingoStore.shared.endpoint
+        let endpointID = provider == .offline ? "" : endpoint.url
         let signature = recognized.map { $0.original }.joined(separator: "\n")
         let previousSignature = savedPages.first.map {
             $0.blocks.map { $0.original }.joined(separator: "\n")
@@ -126,6 +128,7 @@ final class GameMenuCatalog: ObservableObject {
             && savedPages.first?.profileID == profileID
             && savedPages.first?.layout == layout
             && (savedPages.first?.provider ?? .offline) == provider
+            && (savedPages.first?.endpointID ?? "") == endpointID
         if unchanged {
             if isTranslating || savedPages.first?.blocks.allSatisfy({ $0.chinese != nil }) == true {
                 status = "画面文字未改变，沿用已翻译的菜单"
@@ -143,14 +146,17 @@ final class GameMenuCatalog: ObservableObject {
         var prepared = recognized
         for i in prepared.indices {
             let key = cacheKey(profileID: profileID, language: language,
-                               source: prepared[i].original, provider: provider)
+                               source: prepared[i].original, provider: provider,
+                               endpointID: endpointID)
             prepared[i].chinese = glossary[prepared[i].original] ?? cache[key]
         }
         let pageID = unchanged ? (savedPages.first?.id ?? UUID()) : UUID()
         var page = GameMenuPage(id: pageID, profileID: profileID, gameName: gameName,
                                 language: language, scannedAt: Date(), blocks: prepared,
-                                layout: layout, provider: provider)
+                                layout: layout, provider: provider, endpointID: endpointID)
         savedPages.removeAll { $0.profileID == profileID
+            && ($0.provider ?? .offline) == provider
+            && ($0.endpointID ?? "") == endpointID
             && $0.blocks.map { $0.original } == prepared.map { $0.original } }
         savedPages.insert(page, at: 0)
         savedPages = Array(savedPages.prefix(12))
@@ -188,7 +194,8 @@ final class GameMenuCatalog: ObservableObject {
                         guard token == self.revision && !Task.isCancelled else { return }
                         guard !translated.isEmpty else { continue }
                         let key = self.cacheKey(profileID: profileID, language: language,
-                                                source: source, provider: provider)
+                                                source: source, provider: provider,
+                                                endpointID: endpointID)
                         self.cache[key] = translated
                         for idx in page.blocks.indices where page.blocks[idx].original == source {
                             page.blocks[idx].chinese = translated
@@ -230,7 +237,8 @@ final class GameMenuCatalog: ObservableObject {
                         guard !translated.isEmpty else { continue }
                         let source = group[index]
                         let key = self.cacheKey(profileID: profileID, language: language,
-                                                source: source, provider: provider)
+                                                source: source, provider: provider,
+                                                endpointID: endpointID)
                         self.cache[key] = translated
                         for idx in page.blocks.indices where page.blocks[idx].original == source {
                             page.blocks[idx].chinese = translated
@@ -262,8 +270,10 @@ final class GameMenuCatalog: ObservableObject {
     }
 
     private func cacheKey(profileID: UUID, language: String, source: String,
-                          provider: GameTranslationProvider) -> String {
-        profileID.uuidString + "|" + provider.rawValue + "|" + language + "|" + source
+                          provider: GameTranslationProvider,
+                          endpointID: String) -> String {
+        profileID.uuidString + "|" + provider.rawValue + "|" + endpointID
+            + "|" + language + "|" + source
     }
 
     private func persist() {
