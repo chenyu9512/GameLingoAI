@@ -60,6 +60,10 @@ checks = {
         and "request.minimumTextHeight = 0.003" in capture
         and "profile.bottomScanEnabled" in capture
         and "屏幕底部强化识别" in home,
+    "Swift 27 TTS entries mapped with explicit closure":
+        "entries.map { $0.translated }" in subtitle
+        and "entries.map(.translated)" not in subtitle
+        and 'playbackPage = "\\(pageIndex + 1) / \\(pageCount)"' in subtitle,
     "automatic subtitle paging, optional speech and user controls":
         "func configurePlayback(" in subtitle
         and "func togglePlayback()" in subtitle
