@@ -12,6 +12,7 @@ struct DirectHomeView: View {
     @StateObject private var store = GameLingoStore.shared
     @ObservedObject private var capture = DirectGameCapture.shared
     @StateObject private var menuCatalog = GameMenuCatalog.shared
+    @StateObject private var glossaryLibrary = GameGlossaryLibrary.shared
     @StateObject private var overlay = FloatingSubtitleController()
 
     @State private var tab = 0
@@ -78,6 +79,12 @@ struct DirectHomeView: View {
             updateCaptureConfiguration()
         }
         .onChange(of: store.profiles) { _, _ in updateCaptureConfiguration() }
+        .onReceive(glossaryLibrary.$enabledByGame) { _ in
+            updateCaptureConfiguration()
+        }
+        .onReceive(glossaryLibrary.$packs) { _ in
+            updateCaptureConfiguration()
+        }
         .onChange(of: store.provider) { _, _ in
             updateCaptureConfiguration()
             menuCatalog.cancelForProfileChange()
@@ -649,6 +656,10 @@ struct DirectHomeView: View {
                 Text("点击一次即保存到当前游戏，PiP 对白、整屏菜单与截图翻译全部使用；不用逐条添加，也不会改动你的自定义术语。")
                     .font(.caption).foregroundStyle(.white.opacity(0.69))
                 GameRPGDictionaryView()
+            }
+
+            panel {
+                GameGlossaryLibraryView(gameID: store.activeID)
             }
 
             panel {
