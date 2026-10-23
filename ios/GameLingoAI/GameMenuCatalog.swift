@@ -60,6 +60,10 @@ final class GameMenuCatalog: ObservableObject {
         translatedCount = currentPage?.blocks.filter { $0.chinese != nil }.count ?? 0
     }
 
+    func statusForUserRequest() {
+        status = "已请求扫描，将在收到下一帧画面时执行"
+    }
+
     func open(_ page: GameMenuPage) {
         // Browsing a previous page must not interrupt capture or a running translation.
         // Live OCR can keep updating the current page; this is read-only history.
@@ -132,7 +136,13 @@ final class GameMenuCatalog: ObservableObject {
         status = "整屏检测到 \(prepared.count) 个文本块，已译 \(translatedCount) 个"
         persist()
 
-        let unknown = Array(Set(prepared.compactMap { $0.chinese == nil ? $0.original : nil }))
+        // Preserve text order; the response identifier is mapped to each
+        // request, while the page itself stays in screen reading order.
+        var seen = Set<String>()
+        let unknown = prepared.compactMap { block -> String? in
+            guard block.chinese == nil, seen.insert(block.original).inserted else { return nil }
+            return block.original
+        }
         if unknown.isEmpty {
             isTranslating = false
             status = "整屏双语清单已完成，共 \(prepared.count) 条"
@@ -170,7 +180,7 @@ final class GameMenuCatalog: ObservableObject {
                             page.blocks[idx].chinese = translated
                         }
                         self.translatedCount = page.blocks.filter { $0.chinese != nil }.count
-                        self.update(page: page)
+                        self.update(page: page, persistNow: self.translatedCount % 5 == 0)
                     }
                 } catch {
                     guard token == self.revision && !Task.isCancelled else { return }
@@ -186,14 +196,13 @@ final class GameMenuCatalog: ObservableObject {
         }
     }
 
-    private func update(page: GameMenuPage) {
+    private func update(page: GameMenuPage, persistNow: Bool) {
         guard let index = savedPages.firstIndex(where: { $0.id == page.id }) else { return }
         savedPages[index] = page
         // Don't replace the user's view if they opened a different saved page.
         if currentPage?.id == page.id { currentPage = page }
         status = "整屏翻译中：\(translatedCount)/\(page.blocks.count)"
-        // Persist each completed batch item so updates survive app suspension.
-        persist()
+        if persistNow { persist() }
     }
 
     private func cacheKey(profileID: UUID, language: String, source: String) -> String {
