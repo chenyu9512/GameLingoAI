@@ -17,6 +17,7 @@ home = read("ios/GameLingoAI/DirectHomeView.swift")
 capture = read("ios/GameLingoAI/DirectGameCapture.swift")
 subtitle = read("ios/GameLingoAI/FloatingSubtitleController.swift")
 models = read("ios/GameLingoAI/GameLingoStore.swift")
+geometry = read("ios/GameLingoAI/GameCaptureGeometry.swift")
 menu = read("ios/GameLingoAI/GameMenuCatalog.swift")
 plist = plistlib.loads((root / "ios/GameLingoAI/InfoDirect.plist").read_bytes())
 
@@ -26,6 +27,31 @@ checks = {
     "separate SwiftUI entry point": "#if DIRECT_CAPTURE" in app and "DirectHomeView()" in app,
     "game settings target source": "GameLingoStore.swift" in generator
     and "GameLingoStore.swift" in project,
+    "orientation geometry compiled": "GameCaptureGeometry.swift" in generator
+    and "GameCaptureGeometry.swift" in project,
+    "automatic portrait and landscape frame detection":
+        "renderedWidth >= renderedHeight" in geometry
+        and "GameCaptureGeometry(" in capture
+        and "CVPixelBufferGetWidth(buffer)" in capture,
+    "manual rotations with correct Vision handler orientation":
+        "case .left: return .left" in geometry
+        and "case .right: return .right" in geometry
+        and "orientation: geometry.imageOrientation" in capture,
+    "distinct portrait/landscape OCR regions":
+        "var landscapeRegion: GameOCRBox?" in models
+        and "snapshot.portraitROI : snapshot.landscapeROI" in capture
+        and "regionBinding(" in home,
+    "correctly oriented photo OCR":
+        "bitmap.imageOrientation.gameVisionOrientation" in home
+        and "VNImageRequestHandler(cgImage: image, orientation: orientation)" in home,
+    "rotation reset protects stale OCR results":
+        "menuGeometryRevision" in capture
+        and "guard current else { return }" in capture,
+    "app supports portrait and landscape":
+        {"UIInterfaceOrientationPortrait",
+         "UIInterfaceOrientationLandscapeLeft",
+         "UIInterfaceOrientationLandscapeRight"}.issubset(
+             set(plist.get("UISupportedInterfaceOrientations", []))),
     "menu translation is compiled": "GameMenuCatalog.swift" in generator
     and "GameMenuCatalog.swift" in project,
     "full screen OCR retains detected blocks":
@@ -67,8 +93,8 @@ checks = {
         "'CODE_SIGN_ENTITLEMENTS':'' if DIRECT" in generator,
     "full-display background capture declaration":
         "screen-capture" in plist.get("UIBackgroundModes", []),
-    "v3.1 release version":
-        "'MARKETING_VERSION':'3.1.0' if DIRECT" in generator,
+    "v3.2 release version":
+        "'MARKETING_VERSION':'3.2.0' if DIRECT" in generator,
     "direct PiP preview retained": "FloatingSubtitlePreview" in home,
     "offline Translation session": "TranslationSession(" in capture
     and "installedSource:" in capture,
@@ -77,4 +103,4 @@ for label, valid in checks.items():
     print(("OK  " if valid else "FAIL") + label)
 if not all(checks.values()):
     raise SystemExit("Direct release preflight failed")
-print("PASS: GameLingo Direct 3.1 dual-lane bilingual/menu build source preflight")
+print("PASS: GameLingo Direct 3.2 portrait/landscape bilingual/menu build source preflight")
