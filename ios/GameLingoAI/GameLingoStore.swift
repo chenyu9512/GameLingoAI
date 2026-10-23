@@ -31,10 +31,20 @@ struct GameProfile: Codable, Identifiable, Equatable {
     var landscapeRegion: GameOCRBox? = nil             // optional, for migration
     var rotation: GameScreenRotation? = nil            // nil = automatic
     var glossary: String = ""
+    // nil for old saved profiles; auto-enable only when the game name matches.
+    var useDragonQuestLexicon: Bool? = nil
     // Optional normalized region of screen to ignore (e.g. HUD or PiP location).
     var excluded: GameOCRBox? = nil
 
     var screenRotation: GameScreenRotation { rotation ?? .automatic }
+    var dragonQuestEnabled: Bool {
+        useDragonQuestLexicon ?? (
+            name.localizedCaseInsensitiveContains("ドラゴンクエスト")
+            || name.localizedCaseInsensitiveContains("ドラクエ")
+            || name.localizedCaseInsensitiveContains("勇者斗恶龙")
+            || name.localizedCaseInsensitiveContains("dragon quest")
+        )
+    }
     func region(for layout: GameFrameLayout) -> GameOCRBox {
         layout == .portrait ? region : (landscapeRegion ?? .landscapeDialogue)
     }
@@ -102,6 +112,8 @@ final class GameLingoStore: ObservableObject {
         var profiles: [GameProfile]
         var activeID: UUID
         var performance: GamePerformance
+        var provider: GameTranslationProvider?
+        var endpoint: GameTranslationEndpoint?
         var pipLayout: GamePiPLayout
         var subtitleMode: GameSubtitleMode
         var fontScale: Double
@@ -112,6 +124,8 @@ final class GameLingoStore: ObservableObject {
     @Published var profiles: [GameProfile] { didSet { persist() } }
     @Published var activeID: UUID { didSet { persist() } }
     @Published var performance: GamePerformance { didSet { persist() } }
+    @Published var provider: GameTranslationProvider { didSet { persist() } }
+    @Published var endpoint: GameTranslationEndpoint { didSet { persist() } }
     @Published var pipLayout: GamePiPLayout { didSet { persist() } }
     @Published var subtitleMode: GameSubtitleMode { didSet { persist() } }
     @Published var fontScale: Double { didSet { persist() } }
@@ -130,6 +144,8 @@ final class GameLingoStore: ObservableObject {
         profiles = stored?.profiles.isEmpty == false ? stored!.profiles : [defaultProfile]
         activeID = stored?.activeID ?? defaultProfile.id
         performance = stored?.performance ?? .balanced
+        provider = stored?.provider ?? .offline
+        endpoint = stored?.endpoint ?? GameTranslationEndpoint()
         pipLayout = stored?.pipLayout ?? .standard
         subtitleMode = stored?.subtitleMode ?? .bilingual
         fontScale = stored?.fontScale
@@ -221,7 +237,8 @@ final class GameLingoStore: ObservableObject {
 
     private func persist() {
         let state = Saved(profiles: profiles, activeID: activeID,
-                          performance: performance, pipLayout: pipLayout,
+                          performance: performance, provider: provider, endpoint: endpoint,
+                          pipLayout: pipLayout,
                           subtitleMode: subtitleMode, fontScale: fontScale,
                           history: history, onboardingComplete: onboardingComplete)
         if let data = try? JSONEncoder().encode(state) {
