@@ -15,11 +15,17 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     @Published private(set) var isActive = false
     @Published private(set) var status = "悬浮字幕未启动"
     @Published private(set) var outputFrameCount = 0
+    @Published private(set) var playbackPage = "1 / 1"
+    @Published private(set) var isPlaybackPaused = false
 
     let previewLayer = AVSampleBufferDisplayLayer()
     private var pictureInPicture: AVPictureInPictureController?
     private var frameTimer: Timer?
     private var menuRefreshTimer: Timer?
+    private var playbackInterval: TimeInterval = 5.0
+    private var autoplay = true
+    private var readAloud = false
+    private let speaker = AVSpeechSynthesizer()
     private struct SubtitlePage {
         let original: String
         let translated: String
@@ -94,7 +100,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
             recentPairs.append(SubtitlePage(original: currentOriginal, translated: currentText))
         }
         if recentPairs.count > 24 { recentPairs.removeFirst(recentPairs.count - 24) }
-        rebuildPages()
+        rebuildPages(preservePage: isGroupedLayout)
     }
 
     func setMode(_ mode: String, layout: String) {
@@ -129,6 +135,48 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         }
     }
 
+    func configurePlayback(autoplay: Bool, seconds: Double, readAloud: Bool) {
+        let next = min(10.0, max(2.0, seconds))
+        guard self.autoplay != autoplay || playbackInterval != next ||
+              self.readAloud != readAloud else { return }
+        self.autoplay = autoplay
+        playbackInterval = next
+        self.readAloud = readAloud
+        if !readAloud { speaker.stopSpeaking(at: .immediate) }
+        isPlaybackPaused = !autoplay
+        pageChangedAt = CACurrentMediaTime()
+    }
+
+    func togglePlayback() {
+        isPlaybackPaused.toggle()
+        pageChangedAt = CACurrentMediaTime()
+    }
+
+    func nextPage() { changePage(by: 1) }
+    func previousPage() { changePage(by: -1) }
+
+    private func changePage(by distance: Int) {
+        guard pageCount > 0 else { return }
+        pageIndex = (pageIndex + distance + pageCount) % pageCount
+        pageChangedAt = CACurrentMediaTime()
+        playbackPage = "(pageIndex + 1) / (pageCount)"
+        renderFrame()
+        speakCurrentPage()
+    }
+
+    private func speakCurrentPage() {
+        guard readAloud else { return }
+        let entries = isGroupedLayout && pageGroups.indices.contains(pageIndex)
+            ? pageGroups[pageIndex] : [pages[pages.indices.contains(pageIndex) ? pageIndex : 0]]
+        let message = entries.map(.translated).joined(separator: "。")
+        guard !message.isEmpty else { return }
+        speaker.stopSpeaking(at: .immediate)
+        let utterance = AVSpeechUtterance(string: message)
+        utterance.voice = AVSpeechSynthesisVoice(language: "zh-CN")
+        utterance.rate = 0.48
+        speaker.speak(utterance)
+    }
+
     func setFontScale(_ scale: CGFloat) {
         let next = min(1.4, max(0.8, scale))
         guard abs(next - fontScale) > 0.001 else { return }
@@ -159,8 +207,11 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         let startingPage = layoutMode == "menuPages" ? 0 :
             (isGroupedLayout ? max(0, pageGroups.count - 1) : 0)
         pageIndex = preservePage ? min(previousPage, pageCount - 1) : startingPage
-        pageChangedAt = CACurrentMediaTime()
+        playbackPage = "(pageIndex + 1) / (pageCount)"
+        // Keep the page's remaining reading time when new OCR arrives.
+        if !preservePage { pageChangedAt = CACurrentMediaTime() }
         renderFrame()
+        if !preservePage { speakCurrentPage() }
     }
 
     private func chunk(_ source: [SubtitlePage], count: Int) -> [[SubtitlePage]] {
@@ -218,11 +269,9 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         frameTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self else { return }
             let now = CACurrentMediaTime()
-            let interval: CFTimeInterval = self.isGroupedLayout ? 5.0 : 3.8
-            if self.pageCount > 1 && now - self.pageChangedAt >= interval {
-                self.pageIndex = (self.pageIndex + 1) % self.pageCount
-                self.pageChangedAt = now
-                self.renderFrame()
+            if self.autoplay && !self.isPlaybackPaused &&
+               self.pageCount > 1 && now - self.pageChangedAt >= self.playbackInterval {
+                self.changePage(by: 1)
             } else if now - self.lastDrawAt >= 9.0 {
                 self.renderFrame()
             }
