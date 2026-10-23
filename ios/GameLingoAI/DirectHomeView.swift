@@ -28,6 +28,7 @@ struct DirectHomeView: View {
     @State private var screenshotStatus = ""
     @State private var screenshotConfiguration: TranslationSession.Configuration?
     @State private var historySearch = ""
+    @State private var showOCRDebug = false
     @State private var showingOnboarding = false
     @State private var showingRestore = false
     @State private var restoreJSONString = ""
@@ -89,6 +90,9 @@ struct DirectHomeView: View {
         .onReceive(capture.$latestLine) { item in
             guard let item else { return }
             overlay.setBilingual(original: item.original, translated: item.translated)
+        }
+        .onReceive(menuCatalog.$currentPage) { _ in
+            syncMenuOverlay()
         }
         .onChange(of: screenshot) { _, value in
             Task { await processScreenshot(value) }
@@ -273,6 +277,8 @@ struct DirectHomeView: View {
                     .font(.caption2).foregroundStyle(.white.opacity(0.67))
                 Text("PiP 视频帧：\(overlay.outputFrameCount)")
                     .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.7))
+                Text("多行双语显示最近 2～3 组；中文高密度最多 5 条；菜单分页显示已保存的整屏项目。")
+                    .font(.caption2).foregroundStyle(.white.opacity(0.66))
             }
 
             panel {
@@ -309,8 +315,28 @@ struct DirectHomeView: View {
                     Text("最近错误：" + capture.lastError)
                         .font(.caption).foregroundStyle(.orange)
                 }
+                Text("OCR 检测到 \(capture.lastOCRCandidates) 行 · 过滤 \(capture.rejectedOCRLines) 行")
+                    .font(.caption2).foregroundStyle(.white.opacity(0.72))
+                DisclosureGroup(isExpanded: $showOCRDebug) {
+                    VStack(alignment: .leading, spacing: 9) {
+                        Text("原始 OCR 候选（过滤前）").font(.caption.bold())
+                        Text(String(capture.lastOCRRaw.prefix(1600)))
+                            .font(.caption).foregroundStyle(.orange)
+                            .textSelection(.enabled)
+                        Text("有效 OCR 原文（过滤后）").font(.caption.bold())
+                        Text(String(capture.lastOCRAccepted.prefix(1600)))
+                            .font(.caption).foregroundStyle(mint)
+                            .textSelection(.enabled)
+                        Text("最新中文译文").font(.caption.bold())
+                        Text(String(capture.latest.prefix(1600)))
+                            .font(.caption).textSelection(.enabled)
+                    }.padding(.top, 8)
+                } label: {
+                    Label("查看 OCR 乱码诊断与原文／中文对照", systemImage: "text.magnifyingglass")
+                        .font(.caption.bold())
+                }
                 ShareLink(item: capture.diagnostics) {
-                    Label("分享无截图诊断报告", systemImage: "square.and.arrow.up")
+                    Label("分享诊断文本（包含最近 OCR 文字）", systemImage: "square.and.arrow.up")
                 }.buttonStyle(.bordered)
             }
 
@@ -646,6 +672,8 @@ struct DirectHomeView: View {
                         Text(item.title).tag(item)
                     }
                 }.pickerStyle(.segmented)
+                Text("多行双语显示最近几组对话；中文高密度提高容量；菜单分页从整屏清单读取内容。所有内容仍保存在 App 中。")
+                    .font(.caption2).foregroundStyle(.white.opacity(0.7))
                 Text("默认双语：上方显示游戏原文，下方显示中文；字号可在实时页调整。")
                     .font(.caption2).foregroundStyle(.white.opacity(0.7))
             }
@@ -946,6 +974,12 @@ struct DirectHomeView: View {
     private func configureOverlay() {
         overlay.setMode(store.subtitleMode.rawValue, layout: store.pipLayout.rawValue)
         overlay.setFontScale(CGFloat(store.fontScale))
+        syncMenuOverlay()
+    }
+
+    private func syncMenuOverlay() {
+        let contents = menuCatalog.currentPage?.blocks ?? []
+        overlay.setMenuEntries(contents.map { ($0.original, $0.chinese ?? "翻译中…") })
     }
 
     private func processScreenshot(_ photo: PhotosPickerItem?) async {
