@@ -225,7 +225,11 @@ final class GameMenuCatalog: ObservableObject {
 
     private func persist() {
         // Old cached translations can be recovered by revisiting saved pages.
-        if cache.count > 1800 { cache = Dictionary(cache.prefix(1200), uniquingKeysWith: { a, _ in a }) }
+        if cache.count > 1800 {
+            for key in Array(cache.keys).prefix(600) {
+                cache.removeValue(forKey: key)
+            }
+        }
         guard let data = try? JSONEncoder().encode(
             Saved(pages: savedPages, translationCache: cache)) else { return }
         UserDefaults.standard.set(data, forKey: Self.storageKey)
