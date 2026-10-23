@@ -626,10 +626,9 @@ struct DirectHomeView: View {
             }
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
-            request.recognitionLanguages = [
-                ["ja": "ja-JP", "en": "en-US", "ko": "ko-KR"]
-                    [store.activeProfile.language] ?? "ja-JP"
-            ]
+            let languageCodes = ["ja": "ja-JP", "en": "en-US", "ko": "ko-KR"]
+            let ocrLanguage = languageCodes[store.activeProfile.language] ?? "ja-JP"
+            request.recognitionLanguages = [ocrLanguage]
             request.usesLanguageCorrection = true
             try VNImageRequestHandler(cgImage: image).perform([request])
             screenshotText = (request.results ?? []).compactMap {
