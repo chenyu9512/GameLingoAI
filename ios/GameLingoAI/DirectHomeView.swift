@@ -15,7 +15,15 @@ struct DirectHomeView: View {
     @StateObject private var glossaryLibrary = GameGlossaryLibrary.shared
     @StateObject private var overlay = FloatingSubtitleController()
 
+    private enum ConfigSection: String, CaseIterable {
+        case scan = "识别"
+        case terms = "词库"
+        case translator = "翻译"
+        case preferences = "偏好"
+    }
+
     @State private var tab = 0
+    @State private var configSection: ConfigSection = .scan
     @State private var profileDraft = GameProfile(name: "默认游戏")
     @State private var sampleImage: UIImage?
     @State private var regionPhoto: PhotosPickerItem?
@@ -81,10 +89,10 @@ struct DirectHomeView: View {
         }
         .onChange(of: store.profiles) { _, _ in updateCaptureConfiguration() }
         .onReceive(glossaryLibrary.$enabledByGame) { _ in
-            updateCaptureConfiguration()
+            DispatchQueue.main.async { updateCaptureConfiguration() }
         }
         .onReceive(glossaryLibrary.$packs) { _ in
-            updateCaptureConfiguration()
+            DispatchQueue.main.async { updateCaptureConfiguration() }
         }
         .onChange(of: store.provider) { _, _ in
             updateCaptureConfiguration()
@@ -613,6 +621,14 @@ struct DirectHomeView: View {
                     .autocorrectionDisabled()
             }
 
+            Picker("配置类别", selection: $configSection) {
+                ForEach(ConfigSection.allCases, id: \.self) { section in
+                    Text(section.rawValue).tag(section)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            if configSection == .scan {
             panel {
                 sectionTitle("游戏画面方向", icon: "rotate-cw")
                 Picker("方向识别", selection: Binding(
@@ -689,6 +705,9 @@ struct DirectHomeView: View {
                 }
             }
 
+            } // End screen-recognition settings
+
+            if configSection == .terms {
             panel {
                 sectionTitle("游戏专用术语表", icon: "text.book.closed")
                 Text("原文=中文；每行一条。完全匹配时优先使用术语译文。")
@@ -749,9 +768,15 @@ struct DirectHomeView: View {
                 GameGlossaryLibraryView(gameID: store.activeID)
             }
 
+            } // End terminology settings
+
+            if configSection == .translator {
             panel {
                 GameTranslationSettingsView()
             }
+            }
+
+            if configSection == .preferences {
 
             panel {
                 sectionTitle("性能与双语字幕", icon: "slider.horizontal.3")
@@ -819,6 +844,8 @@ struct DirectHomeView: View {
                         .foregroundStyle(.white.opacity(0.8))
                 }
             }
+
+            } // End playback, performance and backup preferences
 
             Button {
                 if profileDraft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
