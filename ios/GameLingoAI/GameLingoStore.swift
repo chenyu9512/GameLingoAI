@@ -79,13 +79,18 @@ enum GamePerformance: String, Codable, CaseIterable, Identifiable {
 }
 
 enum GamePiPLayout: String, Codable, CaseIterable, Identifiable {
+    // Preserve old raw cases, so saved v3.3.1 preferences still decode.
     case compact, standard, learning
+    case multiBilingual, denseChinese, menuPages
     var id: String { rawValue }
     var title: String {
         switch self {
         case .compact: return "精简"
         case .standard: return "标准双语"
         case .learning: return "学习双语"
+        case .multiBilingual: return "多行双语"
+        case .denseChinese: return "中文高密度"
+        case .menuPages: return "菜单分页"
         }
     }
 }
