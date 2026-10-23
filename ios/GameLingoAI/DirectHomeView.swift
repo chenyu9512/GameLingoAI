@@ -10,6 +10,7 @@ import UIKit
 struct DirectHomeView: View {
     @StateObject private var store = GameLingoStore.shared
     @ObservedObject private var capture = DirectGameCapture.shared
+    @StateObject private var menuCatalog = GameMenuCatalog.shared
     @StateObject private var overlay = FloatingSubtitleController()
 
     @State private var tab = 0
@@ -44,7 +45,8 @@ struct DirectHomeView: View {
                     VStack(alignment: .leading, spacing: 17) {
                         header
                         if tab == 0 { realtimePage }
-                        else if tab == 1 { gamePage }
+                        else if tab == 1 { fullScreenPage }
+                        else if tab == 2 { gamePage }
                         else { historyPage }
                     }
                     .padding(.horizontal, 17).padding(.vertical, 16)
@@ -120,7 +122,7 @@ struct DirectHomeView: View {
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text("GameLingo").font(.system(size: 27, weight: .bold, design: .rounded))
-                Text("DIRECT 3.0  ·  双语实时翻译")
+                Text("DIRECT 3.1  ·  双通道游戏翻译")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(mint)
             }
@@ -252,7 +254,141 @@ struct DirectHomeView: View {
                 }.buttonStyle(.bordered)
             }
 
+            panel {
+                HStack {
+                    sectionTitle("整屏菜单扫描", icon: "text.viewfinder")
+                    Spacer()
+                    if menuCatalog.isTranslating {
+                        ProgressView().tint(mint)
+                    }
+                }
+                Text(menuCatalog.status)
+                    .font(.caption).foregroundStyle(.white.opacity(0.75))
+                HStack {
+                    Button {
+                        capture.requestFullScreenScan()
+                    } label: {
+                        Label("立即扫描整屏", systemImage: "viewfinder")
+                    }.buttonStyle(.bordered)
+                    Button {
+                        tab = 1
+                    } label: {
+                        Label("查看完整译文", systemImage: "list.bullet.rectangle")
+                    }.buttonStyle(.borderedProminent).tint(mint)
+                }
+                Text("完整菜单译文保存在 App 的清单中；PiP 仍只显示快速双语对白。")
+                    .font(.caption2).foregroundStyle(.white.opacity(0.67))
+            }
+
             screenshotPanel
+        }
+    }
+
+    private var fullScreenPage: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            panel {
+                HStack(spacing: 8) {
+                    sectionTitle("整屏菜单翻译", icon: "text.viewfinder")
+                    Spacer()
+                    Text("全屏 OCR").font(.caption.bold()).foregroundStyle(mint)
+                }
+                Text("画面静止后自动补充扫描；包含菜单、装备、任务与说明等识别到的文字。")
+                    .font(.caption).foregroundStyle(.white.opacity(0.72))
+                HStack {
+                    Button {
+                        capture.requestFullScreenScan()
+                    } label: {
+                        Label("重新扫描当前屏幕", systemImage: "arrow.clockwise")
+                    }.buttonStyle(.borderedProminent).tint(mint)
+                    if menuCatalog.isTranslating {
+                        ProgressView().tint(mint)
+                    }
+                }
+                Text(menuCatalog.status).font(.caption)
+                    .foregroundStyle(.white.opacity(0.7))
+                if menuCatalog.lastScanMilliseconds > 0 {
+                    Text("全屏 OCR 耗时 \(menuCatalog.lastScanMilliseconds)ms")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+            }
+            panel {
+                HStack {
+                    sectionTitle("本次识别结果", icon: "list.bullet.rectangle")
+                    Spacer()
+                    if let page = menuCatalog.currentPage {
+                        Text("\(menuCatalog.translatedCount)/\(page.blocks.count)")
+                            .font(.caption.monospacedDigit()).foregroundStyle(mint)
+                    }
+                }
+                if !menuCatalog.savedPages.isEmpty {
+                    Menu {
+                        ForEach(menuCatalog.savedPages) { page in
+                            Button {
+                                menuCatalog.open(page)
+                            } label: {
+                                Text("\(page.gameName) · \(page.scannedAt.formatted(date: .abbreviated, time: .shortened)) · \(page.blocks.count)条")
+                            }
+                        }
+                    } label: {
+                        Label("切换保存的菜单页面", systemImage: "square.stack")
+                    }.buttonStyle(.bordered)
+                }
+                HStack {
+                    ShareLink(item: menuCatalog.exportText) {
+                        Label("导出当前整屏双语", systemImage: "square.and.arrow.up")
+                    }.buttonStyle(.bordered)
+                    .disabled(menuCatalog.currentPage == nil)
+                    Button(role: .destructive) {
+                        menuCatalog.clear()
+                    } label: {
+                        Label("清空菜单记录", systemImage: "trash")
+                    }.buttonStyle(.bordered)
+                    .disabled(menuCatalog.savedPages.isEmpty)
+                }
+                if !menuCatalog.lastError.isEmpty {
+                    Text("菜单翻译错误：" + menuCatalog.lastError)
+                        .font(.caption).foregroundStyle(.orange)
+                }
+            }
+            if let page = menuCatalog.currentPage {
+                panel {
+                    HStack {
+                        Text(page.gameName).font(.headline)
+                        Spacer()
+                        Text("\(page.blocks.count) 个文本块")
+                            .font(.caption).foregroundStyle(.white.opacity(0.7))
+                    }
+                    Text("原文和对应中文逐块排列。长菜单可向下滚动，未译出的项目会明确标记。")
+                        .font(.caption2).foregroundStyle(.white.opacity(0.66))
+                }
+                ForEach(page.blocks) { block in
+                    panel {
+                        HStack {
+                            Text(block.original)
+                                .font(.subheadline).foregroundStyle(mint)
+                                .textSelection(.enabled)
+                            Spacer(minLength: 6)
+                            Text("\(Int(block.confidence * 100))%")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.38))
+                        }
+                        Divider().overlay(.white.opacity(0.09))
+                        if let translated = block.chinese, !translated.isEmpty {
+                            Text(translated).font(.headline).textSelection(.enabled)
+                        } else {
+                            Text(menuCatalog.isTranslating ? "正在翻译…" : "尚未翻译")
+                                .font(.subheadline).foregroundStyle(.orange)
+                        }
+                    }
+                }
+            } else {
+                panel {
+                    ContentUnavailableView("暂无整屏识别结果",
+                        systemImage: "text.viewfinder",
+                        description: Text("请先开启屏幕捕获，再打开游戏菜单并保持片刻"))
+                }
+            }
         }
     }
 
@@ -548,8 +684,9 @@ struct DirectHomeView: View {
     private var bottomNavigation: some View {
         HStack(spacing: 0) {
             tabButton(0, "实时", icon: "dot.radiowaves.left.and.right")
-            tabButton(1, "游戏配置", icon: "slider.horizontal.3")
-            tabButton(2, "历史", icon: "clock.arrow.circlepath")
+            tabButton(1, "整屏文字", icon: "text.viewfinder")
+            tabButton(2, "游戏配置", icon: "slider.horizontal.3")
+            tabButton(3, "历史", icon: "clock.arrow.circlepath")
         }
         .padding(.top, 11).padding(.bottom, 6)
         .background(card)
@@ -648,7 +785,7 @@ struct DirectHomeView: View {
             VStack(alignment: .leading, spacing: 19) {
                 Label("GameLingo 双语模式", systemImage: "captions.bubble.fill")
                     .font(.title2.bold()).foregroundStyle(mint)
-                Text("① 在首页准备日语 / 英语 / 韩语对应的系统离线翻译包。\n\n② 点击“双语测试”，开启 PiP 确认原文在上、中文在下。\n\n③ 点击“授权捕获整个屏幕”，再切换回游戏。\n\n④ 在“游戏配置”中调整对白识别框、排除 UI 区域和术语表。\n\n⑤ 运行状态可以导出，但不会记录原始游戏画面。")
+                Text("① 准备系统离线语言包，先用“双语测试”检查 PiP 小窗。\n\n② 授权捕获整个屏幕后，回到游戏即可看到快速双语对白。\n\n③ 打开游戏菜单，静止片刻后系统自动补充全屏扫描；也可在“整屏文字”页手动触发。\n\n④ 在“整屏文字”查看所有已识别的菜单项目，逐条翻译并保存；PiP 不会强行塞入整页菜单。\n\n⑤ 游戏配置中可调整对白 OCR 区域、排除区域与术语表。")
                     .lineSpacing(4)
                 Text("限制：系统可能暂停后台翻译，部分游戏可能限制屏幕录制；PiP 大小和位置由 iOS 管理。")
                     .font(.caption).foregroundStyle(.secondary)
