@@ -65,8 +65,22 @@ checks = {
         rpg.count("RPGGameTerm(category:") >= 400
         and "勇者斗恶龙专用" in rpg
         and "GameRPGDictionaryView" in home,
-    "per-game override glossary first": "mergedTerms.merge(GameLingoStore.glossaryMap" in capture
-        and "profile.dragonQuestEnabled" in capture,
+    "per-game override glossary first": "GameRPGDictionary.glossary(for: profile)" in capture
+        and "result.merge(GameLingoStore.glossaryMap(profile.glossary))" in rpg,
+    "one-tap all Dragon Quest terms": "一键启用整套勇者斗恶龙术语" in home
+        and "一键停用整套勇者斗恶龙术语" in home
+        and "setDragonQuestPackEnabled(newValue, for: profileDraft.id)" in home
+        and "profiles[index].useDragonQuestLexicon = enabled" in models
+        and "dragonQuestTermCount" in rpg,
+    "pack does not copy terms into editable glossary":
+        "GameRPGDictionaryView()" in home
+        and "onInsert" not in rpg_settings
+        and "profileDraft.glossary += line" not in home,
+    "one-tap lexicon used across live and screenshot OCR":
+        "glossary: GameRPGDictionary.glossary(for: store.activeProfile)" in home
+        and "GameRPGDictionary.glossary(for: profile)" in capture,
+    "OCR custom words respect disabled pack":
+        "snapshot.glossary[$0.japanese] != nil" in capture,
     "offline and online cache separated": "profile.provider.rawValue + \"|\"" in capture
         and "provider: provider" in menu and "endpointID: endpointID" in menu,
     "screenshot imports never trigger online API":
@@ -141,8 +155,8 @@ checks = {
         "'CODE_SIGN_ENTITLEMENTS':'' if DIRECT" in generator,
     "full-display background capture declaration":
         "screen-capture" in plist.get("UIBackgroundModes", []),
-    "v3.3 release version":
-        "'MARKETING_VERSION':'3.3.0' if DIRECT" in generator,
+    "v3.3.1 release version":
+        "'MARKETING_VERSION':'3.3.1' if DIRECT" in generator,
     "direct PiP preview retained": "FloatingSubtitlePreview" in home,
     "offline Translation session": "TranslationSession(" in online
     and "installedSource:" in online
@@ -152,4 +166,4 @@ for label, valid in checks.items():
     print(("OK  " if valid else "FAIL") + label)
 if not all(checks.values()):
     raise SystemExit("Direct release preflight failed")
-print("PASS: GameLingo Direct 3.3 offline-by-default, online opt-in, RPG lexicon and orientation preflight")
+print("PASS: GameLingo Direct 3.3.1 one-tap Dragon Quest pack, bilingual pipeline and SideStore preflight")
