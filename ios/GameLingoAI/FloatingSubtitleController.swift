@@ -297,7 +297,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
             if self.autoplay && !self.isPlaybackPaused &&
                self.pageCount > 1 && now - self.pageChangedAt >= self.playbackInterval {
                 self.changePage(by: 1)
-            } else if now - self.lastDrawAt >= 9.0 {
+            } else if now - self.lastDrawAt >= 3.0 {
                 self.renderFrame()
             }
         }
