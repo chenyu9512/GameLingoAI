@@ -100,7 +100,8 @@ final class GameMenuCatalog: ObservableObject {
                  gameName: String, language: String,
                  glossary: [String: String], fingerprint newFingerprint: UInt64,
                  ocrMilliseconds: Int, explicitlyRequested: Bool = false,
-                 layout: GameFrameLayout = .portrait) {
+                 layout: GameFrameLayout = .portrait,
+                 overrideProvider: GameTranslationProvider? = nil) {
         guard profileID == GameLingoStore.shared.activeID else { return }
         lastScanMilliseconds = ocrMilliseconds
         guard !recognized.isEmpty else {
@@ -116,7 +117,7 @@ final class GameMenuCatalog: ObservableObject {
 
         // Do not retranslate or overwrite an unchanged page. This also keeps
         // complete menu translations available when the user returns to the app.
-        let provider = GameLingoStore.shared.provider
+        let provider = overrideProvider ?? GameLingoStore.shared.provider
         let endpoint = GameLingoStore.shared.endpoint
         let endpointID = provider == .offline ? "" : endpoint.url
         let signature = recognized.map { $0.original }.joined(separator: "\n")
