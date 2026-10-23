@@ -148,6 +148,9 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     }
 
     func togglePlayback() {
+        // The transport control can resume playback even if the saved
+        // autoplay preference was off.
+        if !autoplay { autoplay = true }
         isPlaybackPaused.toggle()
         pageChangedAt = CACurrentMediaTime()
     }
@@ -165,7 +168,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     }
 
     private func speakCurrentPage() {
-        guard readAloud else { return }
+        guard readAloud, isActive else { return }
         let entries = isGroupedLayout && pageGroups.indices.contains(pageIndex)
             ? pageGroups[pageIndex] : [pages[pages.indices.contains(pageIndex) ? pageIndex : 0]]
         let message = entries.map(.translated).joined(separator: "。")
@@ -529,6 +532,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         status = "同屏字幕运行中：现在可以切换回游戏"
         renderFrame()
         beginFrameTimer()
+        speakCurrentPage()
     }
 
     func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController,
