@@ -69,6 +69,7 @@ workflows:
             ios/GameLingoAI/GameLingoStore.swift \
             ios/GameLingoAI/GameOnlineTranslation.swift \
             ios/GameLingoAI/GameLanguageSupport.swift \
+            ios/GameLingoAI/GameOCRQuality.swift \
             ios/GameLingoAI/GameRPGDictionary.swift \
             ios/GameLingoAI/GameRPGDictionaryView.swift \
             ios/GameLingoAI/GameTranslationSettingsView.swift \
