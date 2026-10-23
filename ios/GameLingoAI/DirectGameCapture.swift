@@ -80,6 +80,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
     private var lastMenuFingerprint: UInt64 = 0
     private var lastPageFingerprint: UInt64 = 0
     private var menuStaticSince: TimeInterval = 0
+    private var menuGeometryRevision = 0
     // Mutable only on captureQueue.
     private var candidate = ""
     private var candidateCount = 0
@@ -131,6 +132,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
             lastMenuFingerprint = 0
             lastPageFingerprint = 0
             menuStaticSince = 0
+            menuGeometryRevision += 1
+            menuInFlight = false
         }
         gate.unlock()
         // A tab change or SwiftUI view reappearance must not restart OCR,
@@ -312,6 +315,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
             lastPageFingerprint = 0
             menuStaticSince = 0
             lastMenuScannedAt = 0
+            menuGeometryRevision += 1
+            menuInFlight = false
             gate.unlock()
             DispatchQueue.main.async {
                 self.detectedLayout = geometry.layout
@@ -427,6 +432,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let fallbackInterval: TimeInterval = snapshot.performance == .battery ? 14 : 9
         let fallback = now - lastMenuScannedAt >= fallbackInterval
         let perform = !menuInFlight && (forced || (stable && changed) || fallback)
+        let revision = menuGeometryRevision
         if perform {
             menuInFlight = true
             forceMenuScan = false
@@ -443,8 +449,10 @@ final class DirectGameCapture: NSObject, ObservableObject,
                                                      geometry: geometry)
             let took = Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
             self.gate.lock()
-            self.menuInFlight = false
+            let current = self.menuGeometryRevision == revision
+            if current { self.menuInFlight = false }
             self.gate.unlock()
+            guard current else { return }
             DispatchQueue.main.async {
                 // A delayed OCR result must never repopulate the catalog after
                 // the user stopped capture or switched to a different stream.
