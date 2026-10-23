@@ -62,11 +62,22 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let lineCount: Int
     }
 
-    private let captureQueue = DispatchQueue(label: "GameLingo.ocr.queue", qos: .userInitiated)
+    // ScreenCaptureKit callbacks must never perform Vision OCR synchronously.
+    private let captureQueue = DispatchQueue(label: "GameLingo.frames", qos: .userInitiated)
+    private let ocrQueue = DispatchQueue(label: "GameLingo.latestFrameOCR", qos: .userInitiated)
     private let menuQueue = DispatchQueue(label: "GameLingo.fullscreen.ocr", qos: .utility)
     private let gate = NSLock()
     private var config = Snapshot.initial
-    private var busy = false
+    private struct CapturedFrame {
+        let buffer: CVPixelBuffer
+        let snapshot: Snapshot
+        let capturedAt: TimeInterval
+        let revision: Int
+    }
+    // Protected by gate. At most one pending frame replaces stale frames.
+    private var pendingFrame: CapturedFrame?
+    private var ocrWorkerRunning = false
+    private var frameRevision = 0
     private var lastAcceptedAt: TimeInterval = 0
     private var lastFingerprint: UInt64 = 0
     private var lastOCRAt: TimeInterval = 0
@@ -133,6 +144,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let changed = config != snapshot
         if changed {
             config = snapshot
+            frameRevision += 1
+            pendingFrame = nil
             forceMenuScan = false
             manualMenuReadyAt = 0
             lastMenuScannedAt = 0
@@ -147,7 +160,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         // cancel a menu batch, or wipe the already translated dialogue.
         guard changed else { return }
         GameMenuCatalog.shared.cancelForProfileChange()
-        captureQueue.async { [weak self] in
+        ocrQueue.async { [weak self] in
             self?.lastFingerprint = 0
             self?.lastFrameGeometry = ""
             self?.candidate = ""
@@ -182,6 +195,11 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let old = stream
         stream = nil
         lastRequestedFilter = nil
+        gate.lock()
+        frameRevision += 1
+        pendingFrame = nil
+        menuGeometryRevision += 1
+        gate.unlock()
         GameMenuCatalog.shared.cancelForProfileChange()
         pendingTranslation?.cancel()
         translationRevision += 1
@@ -220,6 +238,10 @@ final class DirectGameCapture: NSObject, ObservableObject,
 
     private func launch(_ filter: SCContentFilter) {
         captureGeneration += 1
+        gate.lock()
+        frameRevision += 1
+        pendingFrame = nil
+        gate.unlock()
         let generation = captureGeneration
         let old = stream
         old?.stopCapture { _ in }
@@ -291,23 +313,53 @@ final class DirectGameCapture: NSObject, ObservableObject,
                 of type: SCStreamOutputType) {
         guard type == .screen, sampleBuffer.isValid,
               let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        // Callback is serialized on captureQueue; the lock protects UI settings.
-        let now = Date().timeIntervalSince1970
+        // CVPixelBuffer is retained by CapturedFrame while the worker is active.
+        // The callback replaces the pending item and returns immediately.
         gate.lock()
-        let snapshot = config
-        let shouldAccept = !busy && now - lastAcceptedAt >= snapshot.performance.minimumInterval
-        if shouldAccept {
-            busy = true
-            lastAcceptedAt = now
-        }
+        pendingFrame = CapturedFrame(buffer: buffer, snapshot: config,
+                                     capturedAt: Date().timeIntervalSince1970,
+                                     revision: frameRevision)
+        let shouldLaunch = !ocrWorkerRunning
+        if shouldLaunch { ocrWorkerRunning = true }
         gate.unlock()
-        guard shouldAccept else { return }
-
-        defer {
-            gate.lock()
-            busy = false
-            gate.unlock()
+        if shouldLaunch {
+            ocrQueue.async { [weak self] in self?.drainLatestFrames() }
         }
+    }
+
+    private func isCurrent(_ revision: Int) -> Bool {
+        gate.lock()
+        let current = revision == frameRevision
+        gate.unlock()
+        return current
+    }
+
+    // No work backlog: after each Vision pass, use only the freshest captured
+    // frame. When OCR is slower than the screen, old frames are discarded.
+    private func drainLatestFrames() {
+        while true {
+            gate.lock()
+            guard let frame = pendingFrame else {
+                ocrWorkerRunning = false
+                gate.unlock()
+                return
+            }
+            pendingFrame = nil
+            gate.unlock()
+            guard isCurrent(frame.revision) else { continue }
+            let now = frame.capturedAt
+            guard now - lastAcceptedAt >= frame.snapshot.performance.minimumInterval
+                else { continue }
+            lastAcceptedAt = now
+            processFrame(frame)
+        }
+    }
+
+    private func processFrame(_ frame: CapturedFrame) {
+        let buffer = frame.buffer
+        let snapshot = frame.snapshot
+        let now = frame.capturedAt
+        guard isCurrent(frame.revision) else { return }
         let geometry = GameCaptureGeometry(
             width: CVPixelBufferGetWidth(buffer),
             height: CVPixelBufferGetHeight(buffer),
@@ -327,6 +379,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             menuInFlight = false
             gate.unlock()
             DispatchQueue.main.async {
+                guard self.isCurrent(frame.revision) else { return }
                 self.detectedLayout = geometry.layout
                 self.activeRotation = geometry.rotation
                 self.screenDimensions = "\(geometry.width) × \(geometry.height)"
@@ -348,6 +401,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         // and the same visual frame may need new state after UI changes.
         if staticScene && now - lastOCRAt < 3.0 {
             DispatchQueue.main.async {
+                guard self.isCurrent(frame.revision) else { return }
                 self.ignoredFrames += 1
                 self.lastFrameAt = Date()
             }
@@ -361,15 +415,18 @@ final class DirectGameCapture: NSObject, ObservableObject,
                                     geometry: geometry, region: region)
         let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000)
         DispatchQueue.main.async {
+            guard self.isCurrent(frame.revision) else { return }
             self.frames += 1
             self.scans += 1
             self.lastFrameAt = Date()
             self.ocrElapsedMs = elapsedMs
             self.ocrConfidence = recognition.confidence
         }
+        guard isCurrent(frame.revision) else { return }
         let text = recognition.text
         guard !text.isEmpty else {
             DispatchQueue.main.async {
+                guard self.isCurrent(frame.revision) else { return }
                 self.phase = "等待对白"
                 self.details = "已收到画面，当前识别区域没有可用文字"
             }
@@ -379,14 +436,14 @@ final class DirectGameCapture: NSObject, ObservableObject,
         }
         if candidate == text { candidateCount += 1 }
         else { candidate = text; candidateCount = 1 }
-        // A stable, high-confidence line can be sent immediately instead of
-        // waiting for a second OCR cycle. Dense menus use the full-page lane.
-        guard recognition.lineCount <= 5 && text.count <= 190 else { return }
-        let needed = snapshot.performance == .fast || recognition.confidence >= 0.76 ? 1 : 2
+        // Preserve all detected dialogue text, including long and multi-line
+        // Japanese scenes. Visible PiP pagination handles the presentation.
+        let needed = snapshot.performance == .fast || recognition.confidence >= 0.78 ? 1 : 2
         guard candidateCount >= needed else { return }
 
         DispatchQueue.main.async { [weak self] in
-            self?.submit(text, profile: snapshot, detectedAt: now)
+            guard let self, self.isCurrent(frame.revision) else { return }
+            self.submit(text, profile: snapshot, detectedAt: now)
         }
     }
 
