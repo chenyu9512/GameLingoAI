@@ -162,16 +162,16 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         guard pageCount > 0 else { return }
         pageIndex = (pageIndex + distance + pageCount) % pageCount
         pageChangedAt = CACurrentMediaTime()
-        playbackPage = "(pageIndex + 1) / (pageCount)"
+        playbackPage = "\(pageIndex + 1) / \(pageCount)"
         renderFrame()
         speakCurrentPage()
     }
 
     private func speakCurrentPage() {
-        guard readAloud, isActive else { return }
+        guard readAloud, isActive, !pages.isEmpty else { return }
         let entries = isGroupedLayout && pageGroups.indices.contains(pageIndex)
             ? pageGroups[pageIndex] : [pages[pages.indices.contains(pageIndex) ? pageIndex : 0]]
-        let message = entries.map(.translated).joined(separator: "。")
+        let message = entries.map { $0.translated }.joined(separator: "。")
         guard !message.isEmpty else { return }
         speaker.stopSpeaking(at: .immediate)
         let utterance = AVSpeechUtterance(string: message)
@@ -210,7 +210,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         let startingPage = layoutMode == "menuPages" ? 0 :
             (isGroupedLayout ? max(0, pageGroups.count - 1) : 0)
         pageIndex = preservePage ? min(previousPage, pageCount - 1) : startingPage
-        playbackPage = "(pageIndex + 1) / (pageCount)"
+        playbackPage = "\(pageIndex + 1) / \(pageCount)"
         // Keep the page's remaining reading time when new OCR arrives.
         if !preservePage { pageChangedAt = CACurrentMediaTime() }
         renderFrame()
