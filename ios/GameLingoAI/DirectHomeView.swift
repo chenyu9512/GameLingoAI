@@ -683,49 +683,94 @@ struct DirectHomeView: View {
         }
     }
 
+    private var editingRegion: GameOCRBox {
+        profileDraft.region(for: editingLayout)
+    }
+
+    private func saveEditingRegion(_ newValue: GameOCRBox) {
+        if editingLayout == .portrait {
+            profileDraft.region = newValue
+        } else {
+            profileDraft.landscapeRegion = newValue
+        }
+    }
+
+    private func regionBinding(_ keyPath: WritableKeyPath<GameOCRBox, Double>) -> Binding<Double> {
+        Binding(
+            get: { editingRegion[keyPath: keyPath] },
+            set: { value in
+                var region = editingRegion
+                region[keyPath: keyPath] = value
+                saveEditingRegion(region)
+            })
+    }
+
     private var regionPreview: some View {
         GeometryReader { geometry in
-            let bounds = profileDraft.region.rect
+            let region = editingRegion
+            let bounds = region.rect
+            let source = sampleImage?.size ?? (editingLayout == .portrait
+                ? CGSize(width: 9, height: 16) : CGSize(width: 16, height: 9))
+            let scale = min(geometry.size.width / max(1, source.width),
+                            geometry.size.height / max(1, source.height))
+            let scaledSize = CGSize(width: source.width * scale,
+                                    height: source.height * scale)
+            let pictureRect = CGRect(
+                x: (geometry.size.width - scaledSize.width) / 2,
+                y: (geometry.size.height - scaledSize.height) / 2,
+                width: scaledSize.width, height: scaledSize.height)
+
             ZStack {
-                Rectangle().fill(.black.opacity(0.4))
+                RoundedRectangle(cornerRadius: 10).fill(.black.opacity(0.35))
                 if let sampleImage {
-                    Image(uiImage: sampleImage).resizable().scaledToFit()
-                        .frame(width: geometry.size.width, height: geometry.size.height)
+                    Image(uiImage: sampleImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: scaledSize.width, height: scaledSize.height)
+                        .position(x: pictureRect.midX, y: pictureRect.midY)
                 } else {
-                    Text("在截图上拖动绿框\n或使用滑块定位对白")
+                    Rectangle().fill(.white.opacity(0.035))
+                        .frame(width: scaledSize.width, height: scaledSize.height)
+                        .position(x: pictureRect.midX, y: pictureRect.midY)
+                    Text("导入\(editingLayout.title)游戏截图\n或拖动绿框设置范围")
                         .font(.caption)
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.white.opacity(0.65))
+                        .position(x: pictureRect.midX, y: pictureRect.midY)
                 }
-                Rectangle().stroke(mint, lineWidth: 2.5)
+
+                Rectangle()
+                    .stroke(mint, lineWidth: 2.5)
                     .background(mint.opacity(0.12))
-                    .frame(width: bounds.width * geometry.size.width,
-                           height: bounds.height * geometry.size.height)
-                    .position(x: bounds.midX * geometry.size.width,
-                              y: (1 - bounds.midY) * geometry.size.height)
-                if let ignored = profileDraft.excluded?.rect {
-                    Rectangle().stroke(.orange, style: StrokeStyle(lineWidth: 2, dash: [7, 5]))
-                        .frame(width: ignored.width * geometry.size.width,
-                               height: ignored.height * geometry.size.height)
-                        .position(x: ignored.midX * geometry.size.width,
-                                  y: (1 - ignored.midY) * geometry.size.height)
+                    .frame(width: bounds.width * pictureRect.width,
+                           height: bounds.height * pictureRect.height)
+                    .position(x: pictureRect.minX + bounds.midX * pictureRect.width,
+                              y: pictureRect.minY + (1 - bounds.midY) * pictureRect.height)
+
+                if let excluded = profileDraft.excluded?.rect {
+                    Rectangle()
+                        .stroke(.orange, style: StrokeStyle(lineWidth: 2, dash: [7, 5]))
+                        .frame(width: excluded.width * pictureRect.width,
+                               height: excluded.height * pictureRect.height)
+                        .position(x: pictureRect.minX + excluded.midX * pictureRect.width,
+                                  y: pictureRect.minY + (1 - excluded.midY) * pictureRect.height)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 10))
             .contentShape(Rectangle())
+            .clipShape(RoundedRectangle(cornerRadius: 10))
             .coordinateSpace(name: "ocrPreview")
             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("ocrPreview"))
-                .onChanged { value in
-                    guard geometry.size.width > 0, geometry.size.height > 0 else { return }
-                    let w = profileDraft.region.width
-                    let h = profileDraft.region.height
-                    profileDraft.region.x = min(1 - w, max(0,
-                        value.location.x / geometry.size.width - w / 2))
-                    profileDraft.region.y = min(1 - h, max(0,
-                        1 - value.location.y / geometry.size.height - h / 2))
+                .onChanged { touch in
+                    guard pictureRect.width > 0, pictureRect.height > 0 else { return }
+                    var changed = region
+                    let centerX = (touch.location.x - pictureRect.minX) / pictureRect.width
+                    let centerY = 1 - (touch.location.y - pictureRect.minY) / pictureRect.height
+                    changed.x = max(0, min(1 - changed.width, centerX - changed.width / 2))
+                    changed.y = max(0, min(1 - changed.height, centerY - changed.height / 2))
+                    saveEditingRegion(changed)
                 })
         }
-        .frame(height: 180)
+        .frame(height: editingLayout == .portrait ? 235 : 178)
     }
 
     private var bottomNavigation: some View {
