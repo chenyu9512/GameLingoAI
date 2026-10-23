@@ -142,7 +142,7 @@ struct DirectHomeView: View {
             guard !screenshotText.isEmpty else { return }
             do {
                 let output = try await session.translate(screenshotText).targetText
-                let mapping = GameLingoStore.glossaryMap(store.activeProfile.glossary)
+                let mapping = GameRPGDictionary.glossary(for: store.activeProfile)
                 screenshotResult = mapping[screenshotText] ?? output
                 screenshotStatus = "截图离线翻译完成"
             } catch {
