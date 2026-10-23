@@ -32,6 +32,7 @@ struct DirectHomeView: View {
     @State private var showingRestore = false
     @State private var restoreJSONString = ""
     @State private var restoreMessage = ""
+    @State private var dragonQuestNotice = ""
 
     private let mint = Color(red: 0.25, green: 0.94, blue: 0.78)
     private let navy = Color(red: 0.035, green: 0.065, blue: 0.12)
@@ -71,6 +72,7 @@ struct DirectHomeView: View {
             capture.setHostAppForeground(state == .active)
         }
         .onChange(of: store.activeID) { _, _ in
+            dragonQuestNotice = ""
             profileDraft = store.activeProfile
             updateCaptureConfiguration()
         }
@@ -579,24 +581,48 @@ struct DirectHomeView: View {
             }
 
             panel {
-                Toggle(isOn: Binding(
-                    get: { profileDraft.dragonQuestEnabled },
-                    set: { profileDraft.useDragonQuestLexicon = $0 })) {
-                    Label("勇者斗恶龙专用术语", systemImage: "book.closed")
-                        .font(.headline)
-                }.tint(mint)
-                Text("内置原创日语 RPG 常用句和《勇者斗恶龙》的短术语名称。游戏名称包含勇者斗恶龙 / Dragon Quest 时默认启用。")
-                    .font(.caption).foregroundStyle(.white.opacity(0.69))
-                GameRPGDictionaryView { term in
-                    let line = term.japanese + "=" + term.chinese
-                    let existing = profileDraft.glossary.components(separatedBy: .newlines)
-                    if !existing.contains(line) {
-                        if !profileDraft.glossary.isEmpty {
-                            profileDraft.glossary += "\n"
-                        }
-                        profileDraft.glossary += line
+                sectionTitle("勇者斗恶龙 · 一键术语包", icon: "book.closed.fill")
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("专用术语 \(GameRPGDictionary.dragonQuestTermCount) 条")
+                            .font(.subheadline.bold())
+                        Text("另有通用 RPG 词条一直可用")
+                            .font(.caption2).foregroundStyle(.white.opacity(0.65))
                     }
+                    Spacer()
+                    Text(profileDraft.dragonQuestEnabled ? "已启用" : "未启用")
+                        .font(.caption.bold())
+                        .foregroundStyle(profileDraft.dragonQuestEnabled ? mint : .orange)
                 }
+                Button {
+                    let newValue = !profileDraft.dragonQuestEnabled
+                    if store.setDragonQuestPackEnabled(newValue, for: profileDraft.id) {
+                        profileDraft.useDragonQuestLexicon = newValue
+                        dragonQuestNotice = newValue
+                            ? "整套专用术语已启用并保存，当前游戏立即生效。"
+                            : "整套专用术语已停用并保存；自定义术语仍保留。"
+                    } else {
+                        dragonQuestNotice = "未找到当前游戏配置，请重新选择游戏。"
+                    }
+                } label: {
+                    Label(
+                        profileDraft.dragonQuestEnabled
+                            ? "一键停用整套勇者斗恶龙术语"
+                            : "一键启用整套勇者斗恶龙术语",
+                        systemImage: profileDraft.dragonQuestEnabled
+                            ? "checkmark.circle.fill" : "bolt.fill")
+                        .font(.subheadline.bold())
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(mint)
+                if !dragonQuestNotice.isEmpty {
+                    Text(dragonQuestNotice).font(.caption)
+                        .foregroundStyle(.white.opacity(0.82))
+                }
+                Text("点击一次即保存到当前游戏，PiP 对白、整屏菜单与截图翻译全部使用；不用逐条添加，也不会改动你的自定义术语。")
+                    .font(.caption).foregroundStyle(.white.opacity(0.69))
+                GameRPGDictionaryView()
             }
 
             panel {
@@ -966,18 +992,7 @@ struct DirectHomeView: View {
                     blocks, profileID: store.activeID,
                     gameName: store.activeProfile.name,
                     language: store.activeProfile.language,
-                    glossary: {
-                        var merged = GameRPGDictionary.mapping
-                        if !store.activeProfile.dragonQuestEnabled {
-                            for term in GameRPGDictionary.terms
-                                where term.category == "勇者斗恶龙专用" {
-                                merged.removeValue(forKey: term.japanese)
-                            }
-                        }
-                        merged.merge(GameLingoStore.glossaryMap(
-                            store.activeProfile.glossary)) { _, user in user }
-                        return merged
-                    }(),
+                    glossary: GameRPGDictionary.glossary(for: store.activeProfile),
                     fingerprint: UInt64(Date().timeIntervalSince1970 * 1000),
                     ocrMilliseconds: 0, explicitlyRequested: true,
                     layout: (orientation == .left || orientation == .right)
