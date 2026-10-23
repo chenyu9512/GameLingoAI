@@ -54,6 +54,7 @@ final class GameMenuCatalog: ObservableObject {
     private var job: Task<Void, Never>?
     private var revision = 0
     private var fingerprint: UInt64 = 0
+    private var settingsInvalidated = false
 
     private init() {
         guard let data = UserDefaults.standard.data(forKey: Self.storageKey),
@@ -91,6 +92,7 @@ final class GameMenuCatalog: ObservableObject {
     }
 
     func cancelForProfileChange() {
+        settingsInvalidated = true
         revision += 1
         job?.cancel()
         job = nil
@@ -126,7 +128,7 @@ final class GameMenuCatalog: ObservableObject {
         let previousSignature = savedPages.first.map {
             $0.blocks.map { normalized($0.original) }.joined(separator: "\n")
         }
-        let unchanged = (newFingerprint == fingerprint
+        let unchanged = !settingsInvalidated && (newFingerprint == fingerprint
             || previousSignature == signature)
             && savedPages.first?.profileID == profileID
             && savedPages.first?.layout == layout
@@ -141,17 +143,20 @@ final class GameMenuCatalog: ObservableObject {
             // same page must retry outstanding blocks instead of deadlocking.
         }
         fingerprint = newFingerprint
+        let mustIgnorePreviousGlossary = settingsInvalidated
+        settingsInvalidated = false
         revision += 1
         lastError = ""
         let token = revision
         job?.cancel()
 
         var prepared = recognized
-        let before = savedPages.first(where: {
-            $0.profileID == profileID && $0.language == language
-            && $0.layout == layout && ($0.provider ?? .offline) == provider
-            && ($0.endpointID ?? "") == endpointID
-        })?.blocks ?? []
+        let before: [GameMenuBlock] = mustIgnorePreviousGlossary ? [] :
+            (savedPages.first(where: {
+                $0.profileID == profileID && $0.language == language
+                && $0.layout == layout && ($0.provider ?? .offline) == provider
+                && ($0.endpointID ?? "") == endpointID
+            })?.blocks ?? [])
         var cacheHits = 0
         for i in prepared.indices {
             let original = prepared[i].original
