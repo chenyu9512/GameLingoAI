@@ -81,6 +81,7 @@ struct DirectHomeView: View {
         }
         .onChange(of: scenePhase) { _, state in
             capture.setHostAppForeground(state == .active)
+            if state == .background { store.flushHistory() }
         }
         .onChange(of: store.activeID) { _, _ in
             dragonQuestNotice = ""
