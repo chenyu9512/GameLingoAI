@@ -65,6 +65,9 @@ workflows:
           python3 tools/verify_direct_release.py
           echo "Type-checking Foundation-only OCR quality module"
           xcrun swiftc -typecheck ios/GameLingoAI/GameOCRQuality.swift
+          echo "Running Japanese OCR smoke tests on build Mac"
+          xcrun swiftc ios/GameLingoAI/GameOCRQuality.swift tests/ocr_quality_smoke.swift -o /tmp/gamelingo-ocr-smoke
+          /tmp/gamelingo-ocr-smoke
           echo "Checking Swift syntax before full Xcode compilation"
           xcrun swiftc -frontend -parse -D DIRECT_CAPTURE \
             ios/GameLingoAI/GameLingoAIApp.swift \
