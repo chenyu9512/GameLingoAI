@@ -52,9 +52,9 @@ enum GamePerformance: String, Codable, CaseIterable, Identifiable {
     }
     var minimumInterval: TimeInterval {
         switch self {
-        case .fast: return 0.38
-        case .balanced: return 0.65
-        case .battery: return 1.15
+        case .fast: return 0.30
+        case .balanced: return 0.48
+        case .battery: return 1.20
         }
     }
 }
