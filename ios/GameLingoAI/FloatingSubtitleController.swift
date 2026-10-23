@@ -46,6 +46,8 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     private var renderGeneration = 0
     private var pendingSample: CMSampleBuffer?
     private var readinessSubscribed = false
+    private var startAfterFirstFrame = false
+    private var pendingStartChecks = 0
     private var lastCaptureTime: TimeInterval = 0
     private var lastMeasuredCaptureTime: TimeInterval = 0
     private var latencySamples: [(Date, Int)] = []
@@ -255,21 +257,22 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         }
 
         if previewLayer.status == .failed { previewLayer.flushAndRemoveImage() }
-        // Prime a real video frame *after* clearing a failed renderer;
-        // otherwise PiP may start with an empty / black buffer.
-        renderFrame()
         if pip.isPictureInPictureActive {
             status = "悬浮字幕正在显示"
             return
         }
-        if pip.isPictureInPicturePossible {
-            pip.startPictureInPicture()
-        } else {
-            status = "小窗尚未就绪，请稍后再点一次。请保持预览区域可见。"
-        }
+        // Rendering now runs off-main. Wait for its first enqueued sample
+        // before checking isPictureInPicturePossible; the old synchronous
+        // primer is no longer valid.
+        startAfterFirstFrame = true
+        pendingStartChecks = 0
+        status = "正在准备首帧字幕…"
+        renderFrame()
     }
 
     func stop() {
+        startAfterFirstFrame = false
+        pendingStartChecks = 0
         previewLayer.sampleBufferRenderer.stopRequestingMediaData()
         readinessSubscribed = false
         pendingSample = nil
@@ -382,6 +385,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
             renderer.enqueue(buffer)
             lastDrawAt = CACurrentMediaTime()
             outputFrameCount += 1
+            if startAfterFirstFrame { tryStartPiPAfterFrame() }
             if lastCaptureTime > lastMeasuredCaptureTime {
                 lastMeasuredCaptureTime = lastCaptureTime
                 captureToPiPMs = max(0, Int(
@@ -414,6 +418,28 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         }
     }
 
+    private func tryStartPiPAfterFrame() {
+        guard startAfterFirstFrame, let pip = pictureInPicture else { return }
+        if pip.isPictureInPictureActive {
+            startAfterFirstFrame = false
+            return
+        }
+        if pip.isPictureInPicturePossible {
+            startAfterFirstFrame = false
+            pip.startPictureInPicture()
+            return
+        }
+        pendingStartChecks += 1
+        guard pendingStartChecks <= 12 else {
+            startAfterFirstFrame = false
+            status = "PiP 首帧已就绪但系统暂不允许开启，请保持预览可见后重试"
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.tryStartPiPAfterFrame()
+        }
+    }
+
     // MARK: PiP controller callbacks
     func pictureInPictureControllerWillStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         status = "正在开启同屏字幕…"
@@ -429,11 +455,13 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
 
     func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController,
                                     failedToStartPictureInPictureWithError error: Error) {
+        startAfterFirstFrame = false
         isActive = false
         status = "画中画启动失败：\(error.localizedDescription)"
     }
 
     func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        startAfterFirstFrame = false
         isActive = false
         status = "悬浮窗已关闭，翻译请返回 App 查看"
         frameTimer?.invalidate()
