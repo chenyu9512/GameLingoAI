@@ -18,6 +18,8 @@ struct GameOCRBox: Codable, Equatable {
     }
 
     static let dialogue = GameOCRBox()
+    static let landscapeDialogue = GameOCRBox(x: 0.03, y: 0.03,
+                                               width: 0.94, height: 0.48)
     static let full = GameOCRBox(x: 0.02, y: 0.02, width: 0.96, height: 0.96)
 }
 
@@ -25,10 +27,17 @@ struct GameProfile: Codable, Identifiable, Equatable {
     var id = UUID()
     var name: String
     var language: String = "ja"
-    var region: GameOCRBox = .dialogue
+    var region: GameOCRBox = .dialogue                 // portrait / old profiles
+    var landscapeRegion: GameOCRBox? = nil             // optional, for migration
+    var rotation: GameScreenRotation? = nil            // nil = automatic
     var glossary: String = ""
     // Optional normalized region of screen to ignore (e.g. HUD or PiP location).
     var excluded: GameOCRBox? = nil
+
+    var screenRotation: GameScreenRotation { rotation ?? .automatic }
+    func region(for layout: GameFrameLayout) -> GameOCRBox {
+        layout == .portrait ? region : (landscapeRegion ?? .landscapeDialogue)
+    }
 }
 
 struct GameSubtitleLine: Identifiable, Codable {
