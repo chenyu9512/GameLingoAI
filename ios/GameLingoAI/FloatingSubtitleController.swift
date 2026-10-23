@@ -17,6 +17,9 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     @Published private(set) var outputFrameCount = 0
     @Published private(set) var playbackPage = "1 / 1"
     @Published private(set) var isPlaybackPaused = false
+    @Published private(set) var renderElapsedMs = 0
+    @Published private(set) var captureToPiPMs = 0
+    @Published private(set) var backpressureCount = 0
 
     let previewLayer = AVSampleBufferDisplayLayer()
     private var pictureInPicture: AVPictureInPictureController?
@@ -37,16 +40,17 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     private var menuPairs: [SubtitlePage] = []
     private var pageGroups: [[SubtitlePage]] = []
     private var lastDrawAt: CFTimeInterval = 0
+    private let frameRenderer = GamePiPFrameRenderer()
+    private var renderGeneration = 0
+    private var pendingSample: CMSampleBuffer?
+    private var readinessSubscribed = false
+    private var lastCaptureTime: TimeInterval = 0
     // The requested default is bilingual: game original above, Chinese below.
     private var subtitleMode = "bilingual"
     private var layoutMode = "standard"
     private var pageIndex = 0
     private var pageChangedAt = CACurrentMediaTime()
     private var fontScale: CGFloat = 1
-    private var lastFrameTime: Double = 0
-    private let ciContext = CIContext(options: [.cacheIntermediates: false])
-    // This is the actual encoded video size. UIKit MUST render at scale 1.
-    private let frameSize = CGSize(width: 640, height: 360)
 
     override init() {
         super.init()
@@ -84,12 +88,14 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         setBilingual(original: "", translated: text)
     }
 
-    func setBilingual(original: String, translated: String) {
+    func setBilingual(original: String, translated: String,
+                      capturedAt: TimeInterval? = nil) {
         let nextOriginal = original.trimmingCharacters(in: .whitespacesAndNewlines)
         let nextTranslated = translated.trimmingCharacters(in: .whitespacesAndNewlines)
         guard nextOriginal != currentOriginal || nextTranslated != currentText else { return }
         currentOriginal = nextOriginal
         currentText = nextTranslated.isEmpty ? "等待中文字幕…" : nextTranslated
+        if let capturedAt { lastCaptureTime = capturedAt }
         let sourceLines = currentOriginal.split(separator: "\n").map(String.init)
         let targetLines = currentText.split(separator: "\n").map(String.init)
         if sourceLines.count > 1 && sourceLines.count == targetLines.count {
@@ -100,7 +106,9 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
             recentPairs.append(SubtitlePage(original: currentOriginal, translated: currentText))
         }
         if recentPairs.count > 24 { recentPairs.removeFirst(recentPairs.count - 24) }
-        rebuildPages(preservePage: isGroupedLayout)
+        // Live subtitles must be visible as soon as they're translated.
+        // Older pages remain in recentPairs, but no longer hide new dialogue.
+        rebuildPages(preservePage: layoutMode == "menuPages")
     }
 
     func setMode(_ mode: String, layout: String) {
@@ -258,6 +266,10 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     }
 
     func stop() {
+        previewLayer.sampleBufferRenderer.stopRequestingMediaData()
+        readinessSubscribed = false
+        pendingSample = nil
+        renderGeneration += 1
         pictureInPicture?.stopPictureInPicture()
         frameTimer?.invalidate()
         frameTimer = nil
@@ -317,208 +329,76 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     }
 
 
+    // Only collect cheap, immutable text state on the UI thread.
+    // CoreText layout and CVPixelBuffer creation occur on a serial worker.
     private func renderFrame() {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in self?.renderFrame() }
             return
         }
-        // UIGraphicsImageRenderer uses the screen's Retina scale by default.
-        // That creates 1280x720 / 1920x1080 pixels for a 640x360 canvas,
-        // which was clipped when copied into a 640x360 PiP pixel buffer.
-        let size = frameSize
-        let rendererFormat = UIGraphicsImageRendererFormat()
-        rendererFormat.scale = 1.0
-        rendererFormat.opaque = true
-
-        let image = UIGraphicsImageRenderer(size: size, format: rendererFormat).image { context in
-            let cg = context.cgContext
-            UIColor(red: 0.035, green: 0.055, blue: 0.09, alpha: 1).setFill()
-            cg.fill(CGRect(origin: .zero, size: size))
-
-            // The floating window is tiny. Do not waste 20% of its height
-            // on the logo/header; give the full central region to captions.
-            UIColor(red: 0.24, green: 0.92, blue: 0.78, alpha: 1).setFill()
-            cg.fill(CGRect(x: 0, y: 0, width: size.width, height: 5))
-
-            let page = pages.indices.contains(pageIndex)
+        renderGeneration += 1
+        let count = max(1, pageCount)
+        let selected: [GamePiPFrameRenderer.Pair]
+        if isGroupedLayout && pageGroups.indices.contains(pageIndex) {
+            selected = pageGroups[pageIndex].map {
+                GamePiPFrameRenderer.Pair(original: $0.original,
+                                          translated: $0.translated)
+            }
+        } else {
+            let item = pages.indices.contains(pageIndex)
                 ? pages[pageIndex]
                 : SubtitlePage(original: currentOriginal, translated: currentText)
-
-            let showOriginal = subtitleMode != "chinese" && !page.original.isEmpty
-            let showChinese = subtitleMode != "original" && !page.translated.isEmpty
-            let inset: CGFloat = 22
-            let areaWidth = size.width - inset * 2
-            let origArea: CGRect
-            let zhArea: CGRect
-            if showOriginal && showChinese {
-                let divider = layoutMode == "learning" ? CGFloat(171) :
-                              (layoutMode == "compact" ? CGFloat(126) : CGFloat(149))
-                origArea = CGRect(x: inset, y: 15, width: areaWidth, height: divider - 20)
-                zhArea = CGRect(x: inset, y: divider + 5, width: areaWidth,
-                                height: size.height - divider - 22)
-                UIColor.white.withAlphaComponent(0.12).setFill()
-                cg.fill(CGRect(x: 40, y: divider, width: size.width - 80, height: 1))
-            } else {
-                origArea = CGRect(x: inset, y: 22, width: areaWidth, height: size.height - 44)
-                zhArea = origArea
-            }
-
-            func drawCentered(_ value: String, in area: CGRect,
-                              color: UIColor, maximum: CGFloat, minimum: CGFloat,
-                              weight: UIFont.Weight) {
-                guard !value.isEmpty else { return }
-                let paragraph = NSMutableParagraphStyle()
-                paragraph.alignment = .center
-                paragraph.lineBreakMode = .byWordWrapping
-                paragraph.lineSpacing = 5
-
-                var selectedFont = UIFont.systemFont(ofSize: minimum, weight: weight)
-                var selectedHeight: CGFloat = 0
-                for point in Swift.stride(from: maximum, through: minimum, by: -2) {
-                    let font = UIFont.systemFont(ofSize: point, weight: weight)
-                    let bounds = (value as NSString).boundingRect(
-                        with: CGSize(width: area.width,
-                                     height: CGFloat.greatestFiniteMagnitude),
-                        options: [.usesLineFragmentOrigin, .usesFontLeading],
-                        attributes: [.font: font, .paragraphStyle: paragraph],
-                        context: nil)
-                    selectedFont = font
-                    selectedHeight = ceil(bounds.height)
-                    if selectedHeight <= area.height - 4 { break }
-                }
-                let textHeight = min(selectedHeight, area.height)
-                let textBounds = CGRect(x: area.minX,
-                                        y: area.midY - textHeight / 2,
-                                        width: area.width, height: textHeight + 2)
-                (value as NSString).draw(with: textBounds,
-                    options: [.usesLineFragmentOrigin, .usesFontLeading,
-                              .truncatesLastVisibleLine],
-                    attributes: [.font: selectedFont, .foregroundColor: color,
-                                 .paragraphStyle: paragraph],
-                    context: nil)
-            }
-
-            if isGroupedLayout {
-                let group = pageGroups.indices.contains(pageIndex)
-                    ? pageGroups[pageIndex]
-                    : [SubtitlePage(original: currentOriginal, translated: currentText)]
-                let areaTop: CGFloat = 12
-                let availableHeight = size.height - 24
-                let heightPerRow = availableHeight / CGFloat(max(group.count, 1))
-                for (idx, entry) in group.enumerated() {
-                    let top = areaTop + CGFloat(idx) * heightPerRow
-                    let row = CGRect(x: 16, y: top,
-                                     width: size.width - 32, height: heightPerRow)
-                    if layoutMode == "denseChinese" {
-                        drawCentered(subtitleMode == "original" ? entry.original : entry.translated,
-                                     in: row.insetBy(dx: 3, dy: 5), color: .white,
-                                     maximum: 36 * fontScale, minimum: 19 * fontScale,
-                                     weight: .semibold)
-                    } else if subtitleMode == "chinese" || subtitleMode == "original" {
-                        let text = subtitleMode == "original" ? entry.original : entry.translated
-                        drawCentered(text, in: row.insetBy(dx: 3, dy: 5), color: .white,
-                                     maximum: 34 * fontScale, minimum: 17 * fontScale,
-                                     weight: .semibold)
-                    } else {
-                        let originalRegion = CGRect(x: row.minX, y: row.minY + 2,
-                            width: row.width, height: row.height * 0.42)
-                        let chineseRegion = CGRect(x: row.minX,
-                            y: row.minY + row.height * 0.43,
-                            width: row.width, height: row.height * 0.55)
-                        drawCentered(entry.original, in: originalRegion,
-                                     color: UIColor(red: 0.42, green: 0.94,
-                                                    blue: 0.85, alpha: 1),
-                                     maximum: 29 * fontScale, minimum: 14 * fontScale,
-                                     weight: .medium)
-                        drawCentered(entry.translated, in: chineseRegion,
-                                     color: .white, maximum: 32 * fontScale,
-                                     minimum: 17 * fontScale, weight: .semibold)
-                    }
-                    if idx < group.count - 1 {
-                        UIColor.white.withAlphaComponent(0.1).setFill()
-                        cg.fill(CGRect(x: 32, y: row.maxY - 1,
-                                       width: size.width - 64, height: 1))
-                    }
-                }
-            } else {
-            if showOriginal {
-                let fontSize: CGFloat = layoutMode == "compact" ? 37 : 44
-                drawCentered(page.original, in: origArea,
-                             color: UIColor(red: 0.42, green: 0.94, blue: 0.85, alpha: 1),
-                             maximum: fontSize * fontScale,
-                             minimum: 28 * fontScale, weight: .medium)
-            }
-            if showChinese {
-                let fontSize: CGFloat = layoutMode == "compact" ? 68 :
-                                        (layoutMode == "learning" ? 56 : 64)
-                drawCentered(page.translated, in: zhArea, color: .white,
-                             maximum: fontSize * fontScale,
-                             minimum: 38 * fontScale, weight: .bold)
-            }
-            }
-            // Nonverbal progress indicator for subtitles that require pages.
-            if pageCount > 1 {
-                let progressWidth = size.width / CGFloat(pageCount)
-                UIColor(red: 0.24, green: 0.92, blue: 0.78, alpha: 0.85).setFill()
-                cg.fill(CGRect(x: CGFloat(pageIndex) * progressWidth,
-                               y: size.height - 5,
-                               width: progressWidth,
-                               height: 5))
-            }
+            selected = [GamePiPFrameRenderer.Pair(original: item.original,
+                                                  translated: item.translated)]
         }
-        guard let cgImage = image.cgImage,
-              cgImage.width == Int(size.width),
-              cgImage.height == Int(size.height) else {
-            status = "字幕视频帧尺寸错误"
-            return
+        let next = GamePiPFrameRenderer.Frame(
+            generation: renderGeneration, entries: selected,
+            layout: layoutMode, mode: subtitleMode, fontScale: fontScale,
+            pageIndex: pageIndex, pageCount: count)
+        frameRenderer.render(next) { [weak self] generation, buffer, elapsed in
+            guard let self, generation == self.renderGeneration else { return }
+            self.renderElapsedMs = Int(elapsed.rounded())
+            guard let buffer else {
+                self.status = "PiP 字幕视频帧生成失败"
+                return
+            }
+            self.pendingSample = buffer // latest frame replaces any stalled frame
+            self.flushPendingFrame()
         }
+    }
 
-        var pixelBuffer: CVPixelBuffer?
-        let properties: [CFString: Any] = [
-            kCVPixelBufferCGImageCompatibilityKey: true,
-            kCVPixelBufferCGBitmapContextCompatibilityKey: true,
-            kCVPixelBufferIOSurfacePropertiesKey: [:] as [String: String]
-        ]
-        let createStatus = CVPixelBufferCreate(kCFAllocatorDefault, 640, 360,
-                                               kCVPixelFormatType_32BGRA,
-                                               properties as CFDictionary, &pixelBuffer)
-        guard createStatus == kCVReturnSuccess, let buffer = pixelBuffer else { return }
-        // Copy the rendered UIKit CGImage into the pixel buffer without an extra
-        // CoreGraphics axis transform. The old CGContext flip inverted PiP text.
-        let sourceImage = CIImage(cgImage: cgImage)
-        ciContext.render(sourceImage, to: buffer,
-                         bounds: CGRect(origin: .zero, size: size),
-                         colorSpace: CGColorSpaceCreateDeviceRGB())
-
-        var formatDescription: CMVideoFormatDescription?
-        guard CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault,
-                                                            imageBuffer: buffer,
-                                                            formatDescriptionOut: &formatDescription) == noErr,
-              let format = formatDescription else { return }
-        // Use monotonic increasing timestamps when the content has not changed.
-        let current = CACurrentMediaTime()
-        lastDrawAt = current
-        let stamp = max(current, lastFrameTime + 0.01)
-        lastFrameTime = stamp
-        var timing = CMSampleTimingInfo(duration: CMTime(value: 1, timescale: 1),
-                                        presentationTimeStamp: CMTime(seconds: stamp, preferredTimescale: 1000),
-                                        decodeTimeStamp: .invalid)
-        var sample: CMSampleBuffer?
-        guard CMSampleBufferCreateReadyWithImageBuffer(allocator: kCFAllocatorDefault,
-                                                       imageBuffer: buffer,
-                                                       formatDescription: format,
-                                                       sampleTiming: &timing,
-                                                       sampleBufferOut: &sample) == noErr,
-              let sampleBuffer = sample else { return }
-        if let attachmentArray = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true) as? [NSMutableDictionary],
-           let attachment = attachmentArray.first {
-            attachment[kCMSampleAttachmentKey_DisplayImmediately] = true
+    private func flushPendingFrame() {
+        guard let buffer = pendingSample else { return }
+        let renderer = previewLayer.sampleBufferRenderer
+        if renderer.status == .failed {
+            renderer.flush()
         }
-        let sampleRenderer = previewLayer.sampleBufferRenderer
-        if sampleRenderer.status == .failed { sampleRenderer.flush() }
-        if sampleRenderer.isReadyForMoreMediaData {
-            sampleRenderer.enqueue(sampleBuffer)
+        if renderer.isReadyForMoreMediaData {
+            pendingSample = nil
+            renderer.enqueue(buffer)
+            lastDrawAt = CACurrentMediaTime()
             outputFrameCount += 1
+            if lastCaptureTime > 0 {
+                captureToPiPMs = max(0, Int(
+                    (Date().timeIntervalSince1970 - lastCaptureTime) * 1000))
+            }
+            if readinessSubscribed {
+                renderer.stopRequestingMediaData()
+                readinessSubscribed = false
+            }
+        } else if !readinessSubscribed {
+            backpressureCount += 1
+            readinessSubscribed = true
+            // No busy polling; the renderer invokes this when it can accept
+            // the latest sample. Never enqueue an unbounded video queue.
+            renderer.requestMediaDataWhenReady(on: DispatchQueue.main) { [weak self] in
+                guard let self else { return }
+                self.flushPendingFrame()
+                if self.pendingSample == nil {
+                    renderer.stopRequestingMediaData()
+                    self.readinessSubscribed = false
+                }
+            }
         }
     }
 
@@ -546,6 +426,10 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         status = "悬浮窗已关闭，翻译请返回 App 查看"
         frameTimer?.invalidate()
         frameTimer = nil
+        previewLayer.sampleBufferRenderer.stopRequestingMediaData()
+        readinessSubscribed = false
+        pendingSample = nil
+        renderGeneration += 1
     }
 
     // MARK: Live sample-buffer PiP playback
