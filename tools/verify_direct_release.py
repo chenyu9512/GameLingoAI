@@ -17,6 +17,7 @@ home = read("ios/GameLingoAI/DirectHomeView.swift")
 capture = read("ios/GameLingoAI/DirectGameCapture.swift")
 subtitle = read("ios/GameLingoAI/FloatingSubtitleController.swift")
 models = read("ios/GameLingoAI/GameLingoStore.swift")
+menu = read("ios/GameLingoAI/GameMenuCatalog.swift")
 plist = plistlib.loads((root / "ios/GameLingoAI/InfoDirect.plist").read_bytes())
 
 checks = {
@@ -25,6 +26,23 @@ checks = {
     "separate SwiftUI entry point": "#if DIRECT_CAPTURE" in app and "DirectHomeView()" in app,
     "game settings target source": "GameLingoStore.swift" in generator
     and "GameLingoStore.swift" in project,
+    "menu translation is compiled": "GameMenuCatalog.swift" in generator
+    and "GameMenuCatalog.swift" in project,
+    "full screen OCR retains detected blocks":
+        "private func recognizeFullScreen" in capture
+        and "sorted.enumerated()" in capture
+        and "request.regionOfInterest = GameOCRBox.full.rect" in capture,
+    "streamed batch menu translation":
+        "session.translate(batch: requests)" in menu
+        and "response.clientIdentifier" in menu
+        and "GameMenuBlock" in menu,
+    "persistent complete menu results": "Saved(pages: savedPages" in menu
+        and "GameLingo.Direct.MenuPages.v1" in menu,
+    "separate menu and dialogue lanes": "menuQueue" in capture
+        and "scheduleMenuScan(" in capture,
+    "manual menu scan and scrollable results":
+        "capture.requestFullScreenScan()" in home
+        and "ForEach(page.blocks)" in home,
     "bilingual PiP original and translation": "setBilingual(original:" in subtitle
     and "drawCentered(page.original" in subtitle
     and "drawCentered(page.translated" in subtitle,
@@ -40,8 +58,8 @@ checks = {
         "'CODE_SIGN_ENTITLEMENTS':'' if DIRECT" in generator,
     "full-display background capture declaration":
         "screen-capture" in plist.get("UIBackgroundModes", []),
-    "v3 release version":
-        "'MARKETING_VERSION':'3.0.0' if DIRECT" in generator,
+    "v3.1 release version":
+        "'MARKETING_VERSION':'3.1.0' if DIRECT" in generator,
     "direct PiP preview retained": "FloatingSubtitlePreview" in home,
     "offline Translation session": "TranslationSession(" in capture
     and "installedSource:" in capture,
@@ -50,4 +68,4 @@ for label, valid in checks.items():
     print(("OK  " if valid else "FAIL") + label)
 if not all(checks.values()):
     raise SystemExit("Direct release preflight failed")
-print("PASS: iOS 27 bilingual direct build source preflight")
+print("PASS: GameLingo Direct 3.1 dual-lane bilingual/menu build source preflight")
