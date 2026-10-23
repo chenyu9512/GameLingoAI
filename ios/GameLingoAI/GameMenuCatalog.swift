@@ -41,6 +41,8 @@ final class GameMenuCatalog: ObservableObject {
     @Published private(set) var translatedCount = 0
     @Published private(set) var isTranslating = false
     @Published private(set) var lastScanMilliseconds = 0
+    @Published private(set) var lastCacheHits = 0
+    @Published private(set) var changedBlocks = 0
     @Published private(set) var lastError = ""
 
     private struct Saved: Codable {
@@ -110,7 +112,7 @@ final class GameMenuCatalog: ObservableObject {
         }
         // Ignore sparse automatic scans of normal combat/dialogue scenes.
         // Explicit manual scans always keep every detected line.
-        if recognized.count < 4 && !explicitlyRequested {
+        if recognized.count < 2 && !explicitlyRequested {
             status = "屏幕文字较少，保留上次菜单；可手动扫描少量文字的页面"
             return
         }
@@ -120,9 +122,9 @@ final class GameMenuCatalog: ObservableObject {
         let provider = overrideProvider ?? GameLingoStore.shared.provider
         let endpoint = GameLingoStore.shared.endpoint
         let endpointID = provider == .offline ? "" : endpoint.url
-        let signature = recognized.map { $0.original }.joined(separator: "\n")
+        let signature = recognized.map { normalized($0.original) }.joined(separator: "\n")
         let previousSignature = savedPages.first.map {
-            $0.blocks.map { $0.original }.joined(separator: "\n")
+            $0.blocks.map { normalized($0.original) }.joined(separator: "\n")
         }
         let unchanged = (newFingerprint == fingerprint
             || previousSignature == signature)
@@ -145,12 +147,26 @@ final class GameMenuCatalog: ObservableObject {
         job?.cancel()
 
         var prepared = recognized
+        let before = savedPages.first?.blocks ?? []
+        var cacheHits = 0
         for i in prepared.indices {
+            let original = prepared[i].original
             let key = cacheKey(profileID: profileID, language: language,
-                               source: prepared[i].original, provider: provider,
+                               source: original, provider: provider,
                                endpointID: endpointID)
-            prepared[i].chinese = glossary[prepared[i].original] ?? cache[key]
+            var result = glossary[original] ?? cache[key]
+            if result == nil {
+                result = before.first(where: {
+                    normalized($0.original) == normalized(original)
+                    && abs($0.x - prepared[i].x) < 0.05
+                    && abs($0.y - prepared[i].y) < 0.05
+                })?.chinese
+            }
+            prepared[i].chinese = result
+            if result != nil { cacheHits += 1 }
         }
+        lastCacheHits = cacheHits
+        changedBlocks = max(0, prepared.count - cacheHits)
         let pageID = unchanged ? (savedPages.first?.id ?? UUID()) : UUID()
         var page = GameMenuPage(id: pageID, profileID: profileID, gameName: gameName,
                                 language: language, scannedAt: Date(), blocks: prepared,
@@ -202,7 +218,7 @@ final class GameMenuCatalog: ObservableObject {
                             page.blocks[idx].chinese = translated
                         }
                         self.translatedCount = page.blocks.filter { $0.chinese != nil }.count
-                        self.update(page: page, persistNow: self.translatedCount % 5 == 0)
+                        self.update(page: page, persistNow: self.translatedCount % 12 == 0)
                     } catch {
                         guard token == self.revision && !Task.isCancelled else { return }
                         self.lastError = error.localizedDescription
@@ -245,7 +261,7 @@ final class GameMenuCatalog: ObservableObject {
                             page.blocks[idx].chinese = translated
                         }
                         self.translatedCount = page.blocks.filter { $0.chinese != nil }.count
-                        self.update(page: page, persistNow: self.translatedCount % 5 == 0)
+                        self.update(page: page, persistNow: self.translatedCount % 12 == 0)
                     }
                 } catch {
                     guard token == self.revision && !Task.isCancelled else { return }
@@ -270,11 +286,17 @@ final class GameMenuCatalog: ObservableObject {
         if persistNow { persist() }
     }
 
+    private func normalized(_ text: String) -> String {
+        text.precomposedStringWithCompatibilityMapping
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
     private func cacheKey(profileID: UUID, language: String, source: String,
                           provider: GameTranslationProvider,
                           endpointID: String) -> String {
         profileID.uuidString + "|" + provider.rawValue + "|" + endpointID
-            + "|" + language + "|" + source
+            + "|" + language + "|" + normalized(source)
     }
 
     private func persist() {
