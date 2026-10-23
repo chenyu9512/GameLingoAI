@@ -393,9 +393,9 @@ struct DirectHomeView: View {
                 Text(menuCatalog.status).font(.caption)
                     .foregroundStyle(.white.opacity(0.7))
                 if menuCatalog.lastScanMilliseconds > 0 {
-                    Text("全屏 OCR 耗时 \(menuCatalog.lastScanMilliseconds)ms")
+                    Text("全屏 OCR 耗时 \(menuCatalog.lastScanMilliseconds)ms · 复用已有译文 \(menuCatalog.lastCacheHits) 条 · 待新增翻译 \(menuCatalog.changedBlocks) 条")
                         .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.6))
+                        .foregroundStyle(.white.opacity(0.7))
                 }
             }
             panel {
