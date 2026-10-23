@@ -68,7 +68,7 @@ final class GameGlossaryLibrary: ObservableObject {
 
     func remove(_ id: UUID) {
         packs.removeAll { $0.id == id }
-        for game in enabledByGame.keys {
+        for game in Array(enabledByGame.keys) {
             enabledByGame[game]?.remove(id)
         }
         save()
@@ -103,57 +103,18 @@ final class GameGlossaryLibrary: ObservableObject {
     /// Japanese=Chinese OR Japanese<TAB>Chinese.
     /// # 词库名称：My RPG Pack
     func importText(_ data: Data, suggestedName: String, game: UUID) throws -> GameGlossaryImportReport {
-        guard data.count <= 4_000_000 else { throw ImportError.tooLarge }
-        guard var text = String(data: data, encoding: .utf8)
-                ?? String(data: data, encoding: .utf16)
-        else { throw ImportError.invalidEncoding }
-        text = text.replacingOccurrences(of: "\r\n", with: "\n")
-        var title = suggestedName.replacingOccurrences(of: ".txt", with: "",
-                                                       options: .caseInsensitive)
-        var unique: [String: String] = [:]
-        var order: [String] = []
-        var duplicates = 0
-        var invalid = 0
-        for raw in text.components(separatedBy: "\n") {
-            let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !line.isEmpty else { continue }
-            if line.hasPrefix("#") {
-                let note = String(line.dropFirst()).trimmingCharacters(in: .whitespaces)
-                for prefix in ["词库名称：", "词库名称:", "名称：", "名称:"] {
-                    if note.hasPrefix(prefix) {
-                        let name = String(note.dropFirst(prefix.count))
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !name.isEmpty { title = String(name.prefix(60)) }
-                    }
-                }
-                continue
-            }
-            let separator = line.firstIndex(of: "=") ?? line.firstIndex(of: "\t")
-            guard let separator else { invalid += 1; continue }
-            let source = String(line[..<separator])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let target = String(line[line.index(after: separator)...])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !source.isEmpty, !target.isEmpty,
-                  source.count <= 200, target.count <= 500
-            else { invalid += 1; continue }
-            if unique[source] != nil { duplicates += 1 }
-            else { order.append(source) }
-            unique[source] = target
-            guard order.count <= 25_000 else { throw ImportError.tooManyEntries }
+        let result = try GameGlossaryTXTParser.parse(data, filename: suggestedName)
+        let entries = result.entries.map {
+            GameGlossaryEntry(source: $0.0, target: $0.1)
         }
-        guard !order.isEmpty else { throw ImportError.empty }
-        let entries = order.compactMap { key -> GameGlossaryEntry? in
-            guard let target = unique[key] else { return nil }
-            return GameGlossaryEntry(source: key, target: target)
-        }
-        let pack = GameGlossaryPack(title: String(title.prefix(60)), entries: entries)
+        let pack = GameGlossaryPack(title: result.title, entries: entries)
         packs.append(pack)
         enabledByGame[game, default: []].insert(pack.id)
         save()
-        lastNotice = "已导入「\(pack.title)」\(entries.count) 条；重复 \(duplicates)，无效 \(invalid)。当前游戏已一键启用。"
+        lastNotice = "已导入「\(pack.title)」\(entries.count) 条；重复 \(result.duplicates)，无效 \(result.invalid)。当前游戏已启用。"
         return GameGlossaryImportReport(imported: entries.count,
-                                        duplicates: duplicates, invalid: invalid,
+                                        duplicates: result.duplicates,
+                                        invalid: result.invalid,
                                         title: pack.title)
     }
 
