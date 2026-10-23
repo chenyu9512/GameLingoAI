@@ -183,6 +183,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         picker.present()
     }
 
+    @MainActor
     func stop() {
         captureGeneration += 1
         let old = stream
