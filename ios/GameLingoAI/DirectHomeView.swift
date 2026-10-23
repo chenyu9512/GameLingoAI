@@ -982,7 +982,8 @@ struct DirectHomeView: View {
                     ocrMilliseconds: 0, explicitlyRequested: true,
                     layout: (orientation == .left || orientation == .right)
                         ? (image.width >= image.height ? .portrait : .landscape)
-                        : (image.width >= image.height ? .landscape : .portrait))
+                        : (image.width >= image.height ? .landscape : .portrait),
+                    overrideProvider: .offline)
                 screenshotStatus = "识别了 \(blocks.count) 条；请在“整屏文字”查看逐条中文"
             }
         } catch {
