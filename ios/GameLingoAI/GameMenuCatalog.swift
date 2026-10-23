@@ -61,7 +61,7 @@ final class GameMenuCatalog: ObservableObject {
     }
 
     func statusForUserRequest() {
-        status = "已请求扫描，将在收到下一帧画面时执行"
+        status = "请在约 3 秒内切回游戏；屏幕采集会自动扫描游戏画面"
     }
 
     func open(_ page: GameMenuPage) {
@@ -95,11 +95,17 @@ final class GameMenuCatalog: ObservableObject {
     func receive(_ recognized: [GameMenuBlock], profileID: UUID,
                  gameName: String, language: String,
                  glossary: [String: String], fingerprint newFingerprint: UInt64,
-                 ocrMilliseconds: Int) {
+                 ocrMilliseconds: Int, explicitlyRequested: Bool = false) {
         guard profileID == GameLingoStore.shared.activeID else { return }
         lastScanMilliseconds = ocrMilliseconds
         guard !recognized.isEmpty else {
             status = "这次全屏扫描没有检测到文字；保留上次菜单"
+            return
+        }
+        // Ignore sparse automatic scans of normal combat/dialogue scenes.
+        // Explicit manual scans always keep every detected line.
+        if recognized.count < 4 && !explicitlyRequested {
+            status = "屏幕文字较少，保留上次菜单；可手动扫描少量文字的页面"
             return
         }
 
