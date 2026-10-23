@@ -83,7 +83,15 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         guard nextOriginal != currentOriginal || nextTranslated != currentText else { return }
         currentOriginal = nextOriginal
         currentText = nextTranslated.isEmpty ? "等待中文字幕…" : nextTranslated
-        recentPairs.append(SubtitlePage(original: currentOriginal, translated: currentText))
+        let sourceLines = currentOriginal.split(separator: "\n").map(String.init)
+        let targetLines = currentText.split(separator: "\n").map(String.init)
+        if sourceLines.count > 1 && sourceLines.count == targetLines.count {
+            for (source, target) in zip(sourceLines, targetLines) {
+                recentPairs.append(SubtitlePage(original: source, translated: target))
+            }
+        } else {
+            recentPairs.append(SubtitlePage(original: currentOriginal, translated: currentText))
+        }
         if recentPairs.count > 24 { recentPairs.removeFirst(recentPairs.count - 24) }
         rebuildPages()
     }
@@ -218,7 +226,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
             if text.isEmpty { return [""] }
             var result: [String] = []
             var working = ""
-            for character in text.prefix(640) {
+            for character in text {
                 working.append(character)
                 if working.count >= limit
                     || (working.count > limit / 2
