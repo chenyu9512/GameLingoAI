@@ -77,12 +77,15 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     }
 
     func attachPreview(to view: UIView) {
-        if previewLayer.superlayer !== view.layer {
+        let newParent = previewLayer.superlayer !== view.layer
+        if newParent {
             previewLayer.removeFromSuperlayer()
             view.layer.addSublayer(previewLayer)
         }
         previewLayer.frame = view.bounds
-        renderFrame()
+        // SwiftUI can call updateUIView repeatedly while OCR status changes.
+        // Do not redraw the PiP video for every unrelated view update.
+        if newParent { renderFrame() }
     }
 
     func resizePreview(to bounds: CGRect) {
