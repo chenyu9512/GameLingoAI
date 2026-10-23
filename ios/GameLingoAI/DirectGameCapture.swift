@@ -387,8 +387,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
             self.menuInFlight = false
             self.gate.unlock()
             DispatchQueue.main.async {
-                // Outdated work from a previously selected game is discarded
-                // by the catalog's profile check.
+                // A delayed OCR result must never repopulate the catalog after
+                // the user stopped capture or switched to a different stream.
+                guard self.isCapturing, self.stream != nil else { return }
                 GameMenuCatalog.shared.receive(
                     textBlocks, profileID: snapshot.profileID,
                     gameName: snapshot.name, language: snapshot.language,
