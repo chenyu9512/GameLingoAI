@@ -141,7 +141,7 @@ struct DirectHomeView: View {
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text("GameLingo").font(.system(size: 27, weight: .bold, design: .rounded))
-                Text("DIRECT 3.3  ·  本机优先 · RPG 双语")
+                Text("DIRECT 3.3.1  ·  一键游戏术语包")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(mint)
             }
