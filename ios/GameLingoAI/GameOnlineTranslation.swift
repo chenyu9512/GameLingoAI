@@ -94,7 +94,7 @@ enum GameOnlineTranslationError: LocalizedError {
         switch self {
         case .invalidEndpoint: return "API 地址必须是合法的 HTTPS 地址，不允许嵌入账号和密码"
         case .oversizedText: return "请求包含太多字符，已阻止向免费接口发送"
-        case .quotaExceeded: return "MyMemory 匿名每天约 5,000 字符的本地保护额度已用完"
+        case .quotaExceeded: return "已达到该服务的本机字符保护上限，或免费接口返回了额度限制"
         case .invalidResponse: return "API 返回格式不符合配置；请检查译文字段路径"
         case .http(let code): return "在线接口响应 HTTP \(code)"
         case .missingKey: return "此 API 需要先设置密钥"
