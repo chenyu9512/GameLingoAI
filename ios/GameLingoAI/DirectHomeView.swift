@@ -108,7 +108,10 @@ struct DirectHomeView: View {
         .onChange(of: store.readAloud) { _, _ in configureOverlay() }
         .onReceive(capture.$latestLine) { item in
             guard let item else { return }
-            overlay.setBilingual(original: item.original, translated: item.translated)
+            overlay.setBilingual(
+                original: item.original, translated: item.translated,
+                capturedAt: item.timestamp.timeIntervalSince1970
+                    - Double(item.elapsedMs) / 1000.0)
         }
         .onReceive(menuCatalog.$currentPage) { _ in
             syncMenuOverlay()
@@ -370,8 +373,10 @@ struct DirectHomeView: View {
                 }
                 .buttonStyle(.bordered)
                 .accessibilityElement(children: .contain)
-                Text("PiP 视频帧：\(overlay.outputFrameCount)")
-                    .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.7))
+                Text("PiP 帧 \(overlay.outputFrameCount) · 渲染 \(overlay.renderElapsedMs)ms · 背压 \(overlay.backpressureCount) 次")
+                    .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.75))
+                Text("采集→PiP 提交：最近 \(overlay.captureToPiPMs)ms · P50 \(overlay.p50CaptureToPiPMs)ms · P95 \(overlay.p95CaptureToPiPMs)ms")
+                    .font(.caption2.monospacedDigit()).foregroundStyle(mint)
                 Text("智能连续播放：每页自动前进，支持暂停和阅读速度调节。小窗字体与页面容量由显示模式决定。")
                     .font(.caption2).foregroundStyle(.white.opacity(0.66))
             }
@@ -411,6 +416,10 @@ struct DirectHomeView: View {
                         .font(.caption).foregroundStyle(.orange)
                 }
                 Text("OCR 检测到 \(capture.lastOCRCandidates) 行 · 过滤 \(capture.rejectedOCRLines) 行")
+                Text("采集→OCR 开始 \(capture.queueWaitMs)ms · OCR \(capture.ocrElapsedMs)ms · 翻译 \(capture.translationElapsedMs)ms")
+                    .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.75))
+                Text("采集→译文完成 \(capture.captureToTranslationMs)ms · 过期帧丢弃 \(capture.discardedCaptureFrames) 次")
+                    .font(.caption2.monospacedDigit()).foregroundStyle(.white.opacity(0.7))
                     .font(.caption2).foregroundStyle(.white.opacity(0.72))
                 DisclosureGroup(isExpanded: $showOCRDebug) {
                     VStack(alignment: .leading, spacing: 9) {
