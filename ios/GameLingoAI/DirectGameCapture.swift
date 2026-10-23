@@ -44,13 +44,16 @@ final class DirectGameCapture: NSObject, ObservableObject,
         var excluded: CGRect?
         var glossary: [String: String]
         var performance: GamePerformance
+        var provider: GameTranslationProvider
+        var endpoint: GameTranslationEndpoint
 
         static let initial = Snapshot(profileID: UUID(), name: "默认游戏", language: "ja",
                                       portraitROI: GameOCRBox.dialogue.rect,
                                       landscapeROI: GameOCRBox.landscapeDialogue.rect,
                                       rotation: .automatic,
                                       excluded: nil, glossary: [:],
-                                      performance: .balanced)
+                                      performance: .balanced,
+                                      provider: .offline, endpoint: GameTranslationEndpoint())
     }
 
     private struct Recognition {
@@ -115,13 +118,24 @@ final class DirectGameCapture: NSObject, ObservableObject,
     // Called from SwiftUI when a selected game profile or power mode changes.
     @MainActor
     func configure(profile: GameProfile, performance: GamePerformance) {
+        // Bundle-only terminology: short names and original RPG prompts.
+        // User game glossary overrides bundled entries.
+        var mergedTerms = GameRPGDictionary.mapping
+        if !profile.dragonQuestEnabled {
+            for term in GameRPGDictionary.terms
+                where term.category == "勇者斗恶龙专用" {
+                mergedTerms.removeValue(forKey: term.japanese)
+            }
+        }
+        mergedTerms.merge(GameLingoStore.glossaryMap(profile.glossary)) { _, custom in custom }
         let snapshot = Snapshot(profileID: profile.id, name: profile.name, language: profile.language,
                                 portraitROI: profile.region.rect,
                                 landscapeROI: profile.region(for: .landscape).rect,
                                 rotation: profile.screenRotation,
                                 excluded: profile.excluded?.rect,
-                                glossary: GameLingoStore.glossaryMap(profile.glossary),
-                                performance: performance)
+                                glossary: mergedTerms, performance: performance,
+                                provider: GameLingoStore.shared.provider,
+                                endpoint: GameLingoStore.shared.endpoint)
         gate.lock()
         let changed = config != snapshot
         if changed {
@@ -634,7 +648,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
     private func translate(_ text: String, profile: Snapshot,
                            revision: Int, detectedAt: TimeInterval) async {
         let started = CFAbsoluteTimeGetCurrent()
-        let key = profile.name + "|" + profile.language + "|" + text
+        let key = profile.provider.rawValue + "|" + profile.name + "|" + profile.language + "|" + text
         do {
             let result: String
             if let exact = profile.glossary[text] {
@@ -642,12 +656,12 @@ final class DirectGameCapture: NSObject, ObservableObject,
             } else if let cached = translationCache[key] {
                 result = cached
             } else {
-                // Offline-only initializer: cannot request network translations.
-                let session = TranslationSession(
-                    installedSource: Locale.Language(identifier: profile.language),
-                    target: Locale.Language(identifier: "zh-Hans"))
-                let response = try await session.translate(text)
-                result = response.targetText.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Sending text to online providers is opt-in; the persisted
+                // provider defaults to offline and has no automatic failover.
+                result = try await GameOnlineTranslator.shared.translate(
+                    text, source: profile.language,
+                    provider: profile.provider, endpoint: profile.endpoint)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
             }
             guard revision == translationRevision && !Task.isCancelled else { return }
             guard !result.isEmpty else {
@@ -675,7 +689,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         } catch {
             guard revision == translationRevision && !Task.isCancelled else { return }
             retries = min(retries + 1, 3)
-            phase = "本地翻译失败"
+            phase = profile.provider == .offline ? "本机翻译失败" : "在线翻译失败"
             details = error.localizedDescription
             lastError = error.localizedDescription
             failures += 1
