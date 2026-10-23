@@ -32,6 +32,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
     @Published private(set) var bottomScanMs = 0
     @Published private(set) var lastOCRCandidates = 0
     @Published private(set) var ocrElapsedMs = 0
+    @Published private(set) var queueWaitMs = 0
+    @Published private(set) var discardedCaptureFrames = 0
+    @Published private(set) var captureToTranslationMs = 0
     @Published private(set) var translationElapsedMs = 0
     @Published private(set) var lastFrameAt: Date?
     @Published private(set) var failures = 0
@@ -75,7 +78,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
     // ScreenCaptureKit callbacks must never perform Vision OCR synchronously.
     private let captureQueue = DispatchQueue(label: "GameLingo.frames", qos: .userInitiated)
     private let ocrQueue = DispatchQueue(label: "GameLingo.latestFrameOCR", qos: .userInitiated)
-    private let menuQueue = DispatchQueue(label: "GameLingo.fullscreen.ocr", qos: .utility)
+    // Background accurate OCR is serialized on one utility lane. It cannot
+    // run concurrently with another full-screen or bottom-enhancement pass.
+    private let menuQueue = DispatchQueue(label: "GameLingo.secondary.ocr", qos: .utility)
     private let gate = NSLock()
     private var config = Snapshot.initial
     private struct CapturedFrame {
@@ -86,6 +91,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
     }
     // Protected by gate. At most one pending frame replaces stale frames.
     private var pendingFrame: CapturedFrame?
+    private var droppedFrames = 0
     private var ocrWorkerRunning = false
     private var frameRevision = 0
     private var lastAcceptedAt: TimeInterval = 0
@@ -94,6 +100,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
     private var lastBottomAt: TimeInterval = 0
     private var lastBottomText = ""
     private var lastBottomDuration = 0
+    private var bottomScanInFlight = false
+    private var lastDialogueOCRAt: TimeInterval = 0
     // Only touched on captureQueue: rotation/dimensions changes reset OCR
     // stabilisation without confusing previous frames with new geometry.
     private var lastFrameGeometry = ""
@@ -332,6 +340,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         // CVPixelBuffer is retained by CapturedFrame while the worker is active.
         // The callback replaces the pending item and returns immediately.
         gate.lock()
+        if pendingFrame != nil { droppedFrames += 1 }
         pendingFrame = CapturedFrame(buffer: buffer, snapshot: config,
                                      capturedAt: Date().timeIntervalSince1970,
                                      revision: frameRevision)
@@ -375,6 +384,11 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let buffer = frame.buffer
         let snapshot = frame.snapshot
         let now = frame.capturedAt
+        let dispatchWait = max(0, Int(
+            (Date().timeIntervalSince1970 - now) * 1000))
+        gate.lock()
+        let skipped = droppedFrames
+        gate.unlock()
         guard isCurrent(frame.revision) else { return }
         gate.lock()
         let inHost = hostAppForeground
@@ -440,12 +454,28 @@ final class DirectGameCapture: NSObject, ObservableObject,
                                     geometry: geometry, region: region)
         if snapshot.bottomScan {
             let interval = snapshot.performance == .battery ? 4.0 : 1.7
-            if now - lastBottomAt >= interval || lastBottomAt == 0 {
+            if !bottomScanInFlight && (now - lastBottomAt >= interval || lastBottomAt == 0) {
                 lastBottomAt = now
-                let started = CFAbsoluteTimeGetCurrent()
-                lastBottomText = recognizeBottom(buffer, using: snapshot,
-                                                geometry: geometry)
-                lastBottomDuration = Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
+                bottomScanInFlight = true
+                // Do not block the low-latency dialogue lane behind a second
+                // accurate OCR pass. The result is merged on a later fresh frame.
+                menuQueue.async { [weak self] in
+                    guard let self else { return }
+                    let start = CFAbsoluteTimeGetCurrent()
+                    let result = self.recognizeBottom(buffer, using: snapshot,
+                                                      geometry: geometry)
+                    let duration = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+                    self.ocrQueue.async { [weak self] in
+                        guard let self else { return }
+                        self.bottomScanInFlight = false
+                        guard self.isCurrent(frame.revision) else { return }
+                        self.lastBottomText = result
+                        self.lastBottomDuration = duration
+                        // Refresh the bottom content on the next new frame,
+                        // including when the game screen remains static.
+                        self.lastOCRAt = 0
+                    }
+                }
             }
             if !lastBottomText.isEmpty && now - lastBottomAt <= 5.0 {
                 let primary = recognition.text.components(separatedBy: "\n")
@@ -482,6 +512,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
             self.scans += 1
             self.lastFrameAt = Date()
             self.ocrElapsedMs = elapsedMs
+            self.queueWaitMs = dispatchWait
+            self.discardedCaptureFrames = skipped
             self.ocrConfidence = recognition.confidence
         }
         guard isCurrent(frame.revision) else { return }
@@ -502,6 +534,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         // Japanese scenes. Visible PiP pagination handles the presentation.
         let needed = snapshot.performance == .fast || recognition.confidence >= 0.78 ? 1 : 2
         guard candidateCount >= needed else { return }
+        lastDialogueOCRAt = now
 
         DispatchQueue.main.async { [weak self] in
             guard let self, self.isCurrent(frame.revision) else { return }
@@ -539,9 +572,11 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let enoughTime = now - lastMenuScannedAt >= 0.7
         let running = menuInFlight
         gate.unlock()
+        let recentlyDetectedDialogue = now - lastDialogueOCRAt < 1.6
         // Pause menu OCR while our own settings screen is visible.
         // Manual scans wait until the user has returned to the game.
-        guard !visible, (!forced || ready), (forced || enoughTime), !running else { return }
+        guard !visible, (!forced || ready), (forced || enoughTime), !running,
+              (forced || !recentlyDetectedDialogue) else { return }
 
         let fingerprint = frameFingerprint(buffer, region: CGRect(x: 0, y: 0, width: 1, height: 1))
         gate.lock()
@@ -878,6 +913,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             let entry = GameSubtitleLine(original: text, translated: result,
                                          game: profile.name, timestamp: Date(),
                                          elapsedMs: Int((Date().timeIntervalSince1970 - detectedAt) * 1000))
+            captureToTranslationMs = entry.elapsedMs
             latestLine = entry
             GameLingoStore.shared.add(entry)
         } catch {
@@ -917,6 +953,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
         Validated OCR: \(lastOCRAccepted)
         Translations: \(translatedCount)
         OCR: \(ocrElapsedMs)ms, confidence: \(Int(ocrConfidence * 100))%
+        Capture queue wait: \(queueWaitMs)ms; dropped frames: \(discardedCaptureFrames)
+        Capture-to-translation: \(captureToTranslationMs)ms
         Translation: \(translationElapsedMs)ms
         Screen: \(screenDimensions) / \(detectedLayout.title)
         Rotation setting: \(activeRotation.title)
