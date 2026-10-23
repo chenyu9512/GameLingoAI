@@ -64,6 +64,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
     // blocks the faster PiP OCR callback queue.
     private var menuInFlight = false
     private var forceMenuScan = false
+    private var manualMenuReadyAt: TimeInterval = 0
+    private var hostAppForeground = true
     private var lastMenuScannedAt: TimeInterval = 0
     private var lastMenuFingerprint: UInt64 = 0
     private var lastPageFingerprint: UInt64 = 0
@@ -90,6 +92,15 @@ final class DirectGameCapture: NSObject, ObservableObject,
         super.init()
     }
 
+    /// Called by SwiftUI scene lifecycle; prevents scanning GameLingo's own UI
+    /// as if it were a game menu.
+    @MainActor
+    func setHostAppForeground(_ value: Bool) {
+        gate.lock()
+        hostAppForeground = value
+        gate.unlock()
+    }
+
     // Called from SwiftUI when a selected game profile or power mode changes.
     @MainActor
     func configure(profile: GameProfile, performance: GamePerformance) {
@@ -100,6 +111,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         gate.lock()
         config = snapshot
         forceMenuScan = true
+        manualMenuReadyAt = 0
         lastMenuScannedAt = 0
         lastMenuFingerprint = 0
         lastPageFingerprint = 0
@@ -325,6 +337,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         }
         gate.lock()
         forceMenuScan = true
+        manualMenuReadyAt = Date().timeIntervalSince1970 + 2.5
         gate.unlock()
         GameMenuCatalog.shared.statusForUserRequest()
     }
@@ -336,12 +349,16 @@ final class DirectGameCapture: NSObject, ObservableObject,
                                   snapshot: Snapshot, now: TimeInterval) {
         gate.lock()
         let forced = forceMenuScan
+        let ready = now >= manualMenuReadyAt
+        let visible = hostAppForeground
         let enoughTime = now - lastMenuScannedAt >= 0.7
         let running = menuInFlight
         gate.unlock()
-        guard (forced || enoughTime) && !running else { return }
+        // Pause menu OCR while our own settings screen is visible.
+        // Manual scans wait until the user has returned to the game.
+        guard !visible, (!forced || ready), (forced || enoughTime), !running else { return }
 
-        let fingerprint = frameFingerprint(buffer, region: GameOCRBox.full.rect)
+        let fingerprint = frameFingerprint(buffer, region: CGRect(x: 0, y: 0, width: 1, height: 1))
         gate.lock()
         if fingerprint != lastMenuFingerprint {
             lastMenuFingerprint = fingerprint
@@ -349,7 +366,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
         }
         let stable = now - menuStaticSince >= 1.1
         let changed = fingerprint != lastPageFingerprint
-        let fallback = now - lastMenuScannedAt >= 8
+        let fallbackInterval: TimeInterval = snapshot.performance == .battery ? 14 : 9
+        let fallback = now - lastMenuScannedAt >= fallbackInterval
         let perform = !menuInFlight && (forced || (stable && changed) || fallback)
         if perform {
             menuInFlight = true
@@ -375,7 +393,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
                     textBlocks, profileID: snapshot.profileID,
                     gameName: snapshot.name, language: snapshot.language,
                     glossary: snapshot.glossary, fingerprint: fingerprint,
-                    ocrMilliseconds: took)
+                    ocrMilliseconds: took, explicitlyRequested: forced)
             }
         }
     }
@@ -388,7 +406,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         request.usesLanguageCorrection = true
         let languages = ["ja": "ja-JP", "en": "en-US", "ko": "ko-KR"]
         request.recognitionLanguages = [languages[snapshot.language] ?? "ja-JP"]
-        request.regionOfInterest = GameOCRBox.full.rect
+        request.regionOfInterest = CGRect(x: 0, y: 0, width: 1, height: 1)
         do {
             try VNImageRequestHandler(cvPixelBuffer: buffer,
                                      orientation: .up, options: [:]).perform([request])
