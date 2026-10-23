@@ -25,6 +25,7 @@ struct GameMenuPage: Codable, Identifiable {
     var blocks: [GameMenuBlock]
     // Optional for backwards-compatible decoding of pages saved before 3.2.
     var layout: GameFrameLayout? = nil
+    var provider: GameTranslationProvider? = nil
 }
 
 /// A local archive of full-screen OCR pages and previously translated strings.
@@ -114,6 +115,8 @@ final class GameMenuCatalog: ObservableObject {
 
         // Do not retranslate or overwrite an unchanged page. This also keeps
         // complete menu translations available when the user returns to the app.
+        let provider = GameLingoStore.shared.provider
+        let endpoint = GameLingoStore.shared.endpoint
         let signature = recognized.map { $0.original }.joined(separator: "\n")
         let previousSignature = savedPages.first.map {
             $0.blocks.map { $0.original }.joined(separator: "\n")
@@ -122,6 +125,7 @@ final class GameMenuCatalog: ObservableObject {
             || previousSignature == signature)
             && savedPages.first?.profileID == profileID
             && savedPages.first?.layout == layout
+            && (savedPages.first?.provider ?? .offline) == provider
         if unchanged {
             if isTranslating || savedPages.first?.blocks.allSatisfy({ $0.chinese != nil }) == true {
                 status = "画面文字未改变，沿用已翻译的菜单"
@@ -139,13 +143,13 @@ final class GameMenuCatalog: ObservableObject {
         var prepared = recognized
         for i in prepared.indices {
             let key = cacheKey(profileID: profileID, language: language,
-                               source: prepared[i].original)
+                               source: prepared[i].original, provider: provider)
             prepared[i].chinese = glossary[prepared[i].original] ?? cache[key]
         }
         let pageID = unchanged ? (savedPages.first?.id ?? UUID()) : UUID()
         var page = GameMenuPage(id: pageID, profileID: profileID, gameName: gameName,
                                 language: language, scannedAt: Date(), blocks: prepared,
-                                layout: layout)
+                                layout: layout, provider: provider)
         savedPages.removeAll { $0.profileID == profileID
             && $0.blocks.map { $0.original } == prepared.map { $0.original } }
         savedPages.insert(page, at: 0)
@@ -171,6 +175,39 @@ final class GameMenuCatalog: ObservableObject {
 
         job = Task { @MainActor [weak self] in
             guard let self else { return }
+            // Online API is always an explicit opt-in. Cached RPG terms are
+            // already filled in above; only unknown individual blocks leave
+            // the device, never raw screenshots.
+            if provider != .offline {
+                for source in unknown {
+                    guard token == self.revision && !Task.isCancelled else { return }
+                    do {
+                        let translated = try await GameOnlineTranslator.shared.translate(
+                            source, source: language, provider: provider, endpoint: endpoint)
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard token == self.revision && !Task.isCancelled else { return }
+                        guard !translated.isEmpty else { continue }
+                        let key = self.cacheKey(profileID: profileID, language: language,
+                                                source: source, provider: provider)
+                        self.cache[key] = translated
+                        for idx in page.blocks.indices where page.blocks[idx].original == source {
+                            page.blocks[idx].chinese = translated
+                        }
+                        self.translatedCount = page.blocks.filter { $0.chinese != nil }.count
+                        self.update(page: page, persistNow: self.translatedCount % 5 == 0)
+                    } catch {
+                        guard token == self.revision && !Task.isCancelled else { return }
+                        self.lastError = error.localizedDescription
+                        self.status = "在线 API 错误，停止本页后续请求；已有译文仍保留"
+                        break
+                    }
+                }
+                guard token == self.revision && !Task.isCancelled else { return }
+                self.isTranslating = false
+                self.persist()
+                return
+            }
+
             let session = TranslationSession(
                 installedSource: Locale.Language(identifier: language),
                 target: Locale.Language(identifier: "zh-Hans"))
@@ -193,7 +230,7 @@ final class GameMenuCatalog: ObservableObject {
                         guard !translated.isEmpty else { continue }
                         let source = group[index]
                         let key = self.cacheKey(profileID: profileID, language: language,
-                                                source: source)
+                                                source: source, provider: provider)
                         self.cache[key] = translated
                         for idx in page.blocks.indices where page.blocks[idx].original == source {
                             page.blocks[idx].chinese = translated
@@ -224,8 +261,9 @@ final class GameMenuCatalog: ObservableObject {
         if persistNow { persist() }
     }
 
-    private func cacheKey(profileID: UUID, language: String, source: String) -> String {
-        profileID.uuidString + "|" + language + "|" + source
+    private func cacheKey(profileID: UUID, language: String, source: String,
+                          provider: GameTranslationProvider) -> String {
+        profileID.uuidString + "|" + provider.rawValue + "|" + language + "|" + source
     }
 
     private func persist() {
