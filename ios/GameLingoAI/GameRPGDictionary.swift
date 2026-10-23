@@ -513,6 +513,7 @@ enum GameRPGDictionary {
 
     // Resolve the entire built-in pack without copying entries into the user's
     // editable glossary. Custom terms retain priority and remain untouched.
+    @MainActor
     static func glossary(for profile: GameProfile) -> [String: String] {
         var result: [String: String] = [:]
         for term in terms {
@@ -520,6 +521,10 @@ enum GameRPGDictionary {
                 continue
             }
             result[term.japanese] = term.chinese
+        }
+        // TXT packs supplement the built-in lexicon; manual game overrides win.
+        result.merge(GameGlossaryLibrary.shared.activeDictionary(game: profile.id)) {
+            _, imported in imported
         }
         result.merge(GameLingoStore.glossaryMap(profile.glossary)) {
             _, userTranslation in userTranslation
