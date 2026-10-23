@@ -933,10 +933,8 @@ struct DirectHomeView: View {
             }
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
-            let languageCodes = ["ja": "ja-JP", "en": "en-US", "ko": "ko-KR"]
-            let ocrLanguage = languageCodes[store.activeProfile.language] ?? "ja-JP"
-            request.recognitionLanguages = [ocrLanguage]
             request.usesLanguageCorrection = true
+            try GameLanguageSupport.setup(request, language: store.activeProfile.language)
             let orientation = store.activeProfile.screenRotation == .automatic
                 ? bitmap.imageOrientation.gameVisionOrientation
                 : store.activeProfile.screenRotation.imageOrientation
@@ -968,7 +966,18 @@ struct DirectHomeView: View {
                     blocks, profileID: store.activeID,
                     gameName: store.activeProfile.name,
                     language: store.activeProfile.language,
-                    glossary: GameLingoStore.glossaryMap(store.activeProfile.glossary),
+                    glossary: {
+                        var merged = GameRPGDictionary.mapping
+                        if !store.activeProfile.dragonQuestEnabled {
+                            for term in GameRPGDictionary.terms
+                                where term.category == "勇者斗恶龙专用" {
+                                merged.removeValue(forKey: term.japanese)
+                            }
+                        }
+                        merged.merge(GameLingoStore.glossaryMap(
+                            store.activeProfile.glossary)) { _, user in user }
+                        return merged
+                    }(),
                     fingerprint: UInt64(Date().timeIntervalSince1970 * 1000),
                     ocrMilliseconds: 0, explicitlyRequested: true,
                     layout: (orientation == .left || orientation == .right)
