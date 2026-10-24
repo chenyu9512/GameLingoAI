@@ -288,7 +288,7 @@ struct DirectHomeView: View {
                     Text("自动识别无需预设源语言；离线翻译仍需要提前安装实际语言的翻译包。")
                         .font(.caption2).foregroundStyle(.white.opacity(0.73))
                 }
-                Text("当前识别：\\(capture.activeOCRName)")
+                Text("当前识别：\(capture.activeOCRName)")
                     .font(.caption).foregroundStyle(mint)
 
             }
