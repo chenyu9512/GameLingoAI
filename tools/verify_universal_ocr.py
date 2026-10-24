@@ -27,6 +27,8 @@ online = read("ios/GameLingoAI/GameOnlineTranslation.swift")
 menu = read("ios/GameLingoAI/GameMenuCatalog.swift")
 source_languages = read("ios/GameLingoAI/GameLanguageSupport.swift")
 target_test = read("tests/translation_languages_smoke.swift")
+scene_geometry = read("ios/GameLingoAI/GamePiPSceneLayout.swift")
+scene_test = read("tests/pip_scene_smoke.swift")
 session_policy = read("ios/GameLingoAI/GameOCRSessionPolicy.swift")
 session_policy_test = read("tests/ocr_session_policy_smoke.swift")
 
@@ -34,8 +36,8 @@ checks = {
     "isolated universal branch build flag":
         "GAMELINGO_ENABLE_PADDLE" in generator
         and "'DIRECT_CAPTURE PADDLE_OCR'" in generator,
-    "v3.8.0 build 18": "'MARKETING_VERSION':'3.8.0'" in generator
-        and "'CURRENT_PROJECT_VERSION':'18'" in generator,
+    "v3.8.1 build 19": "'MARKETING_VERSION':'3.8.1'" in generator
+        and "'CURRENT_PROJECT_VERSION':'19'" in generator,
     "Google ML Kit removed":
         "GoogleMLKit" not in podfile and "MLKIT_OCR" not in generator
         and not Path("ios/GameLingoAI/GameMLKitJapaneseOCR.swift").exists(),
@@ -99,6 +101,27 @@ checks = {
     "new target regression tests run in Codemagic":
         "tests/translation_languages_smoke.swift" in workflow
         and "GameTranslationLanguages.preferredTarget" in target_test,
+    "portrait scene and focus layouts in both targets":
+        generator.count("'ios/GameLingoAI/GamePiPSceneLayout.swift'") == 2
+        and "GamePiPSceneLayout.swift" in project
+        and "case portraitScene, portraitFocus" in store
+        and 'isScene ? GamePiPSceneLayout.portraitWidth' in renderer,
+    "live game frames are capped and kept in memory":
+        "sceneDue" in capture
+        and "uptime - lastSceneFrameAt >= 0.5" in capture
+        and "sceneFrameHandler?(buffer, sceneOrientation)" in capture
+        and "renderScene(frame, context: context)" in renderer
+        and "CIImage(cvPixelBuffer: source)" in renderer,
+    "positioned OCR lines survive source-to-translation mapping":
+        "spatialLines: sorted.map" in capture
+        and "spatialLines: recognition.spatialLines" in capture
+        and "sceneText = zip(spatialLines, outputLines)" in capture
+        and "setSceneTranslatedLines" in pip
+        and "setSceneMenuPage" in pip,
+    "portrait mapping tests enabled in Codemagic":
+        "GamePiPSceneLayout.viewport(" in scene_test
+        and "GamePiPSceneLayout.visible(" in scene_test
+        and "tests/pip_scene_smoke.swift" in workflow,
     "Paddle diagnostic latency is snapshotted before main queue closure":
         "let paddleDurationMs = lastPaddleMs" in capture
         and '"paddle_ms": paddleDurationMs' in capture
@@ -172,7 +195,7 @@ checks = {
         and "showDiagnostics" in ui,
     "separate new workflow and unsigned IPA":
         "ios-universal-ocr-unsigned:" in workflow
-        and "GameLingoAI-Universal-v3.8.0-b18-beta-unsigned.ipa" in workflow,
+        and "GameLingoAI-Universal-v3.8.1-b19-portrait-unsigned.ipa" in workflow,
 }
 for key, ok in checks.items():
     print(("PASS " if ok else "FAIL ") + key)
