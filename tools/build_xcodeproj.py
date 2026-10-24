@@ -8,6 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE_ID = (ROOT / '.app_bundle_id').read_text().strip() if (ROOT / '.app_bundle_id').exists() else 'com.example.GameLingoAI'
 DIRECT = os.environ.get('GAMELINGO_DIRECT_CAPTURE') == '1'
+MLKIT = DIRECT and os.environ.get('GAMELINGO_EXPERIMENTAL_MLKIT') == '1'
 if DIRECT:
     BUNDLE_ID += '.direct'
 DEST = ROOT / 'GameLingoAI.xcodeproj'
@@ -39,7 +40,7 @@ def obj(key, isa, **props):
     objects[key]=dict(isa=isa,**props)
     return Raw(i)
 
-src_app=(['ios/GameLingoAI/GameLingoAIApp.swift','ios/GameLingoAI/GameLingoStore.swift','ios/GameLingoAI/GameOnlineTranslation.swift','ios/GameLingoAI/GameGlossaryTXTParser.swift','ios/GameLingoAI/GameGlossaryLibrary.swift','ios/GameLingoAI/GameGlossaryLibraryView.swift','ios/GameLingoAI/GameLanguageSupport.swift','ios/GameLingoAI/GameOCRQuality.swift','ios/GameLingoAI/GameDiagnosticLog.swift','ios/GameLingoAI/GameRPGDictionary.swift','ios/GameLingoAI/GameRPGDictionaryView.swift','ios/GameLingoAI/GameTranslationSettingsView.swift','ios/GameLingoAI/GameCaptureGeometry.swift','ios/GameLingoAI/GameMenuCatalog.swift','ios/GameLingoAI/DirectHomeView.swift','ios/GameLingoAI/FloatingSubtitleController.swift','ios/GameLingoAI/GamePiPFrameRenderer.swift','ios/GameLingoAI/DirectGameCapture.swift'] if DIRECT else ['ios/GameLingoAI/GameLingoAIApp.swift','ios/GameLingoAI/ContentView.swift','ios/GameLingoAI/SubtitleInbox.swift','ios/GameLingoAI/FloatingSubtitleController.swift'])
+src_app=(['ios/GameLingoAI/GameLingoAIApp.swift','ios/GameLingoAI/GameLingoStore.swift','ios/GameLingoAI/GameOnlineTranslation.swift','ios/GameLingoAI/GameGlossaryTXTParser.swift','ios/GameLingoAI/GameGlossaryLibrary.swift','ios/GameLingoAI/GameGlossaryLibraryView.swift','ios/GameLingoAI/GameLanguageSupport.swift','ios/GameLingoAI/GameOCRQuality.swift','ios/GameLingoAI/GameMLKitJapaneseOCR.swift','ios/GameLingoAI/GameDiagnosticLog.swift','ios/GameLingoAI/GameRPGDictionary.swift','ios/GameLingoAI/GameRPGDictionaryView.swift','ios/GameLingoAI/GameTranslationSettingsView.swift','ios/GameLingoAI/GameCaptureGeometry.swift','ios/GameLingoAI/GameMenuCatalog.swift','ios/GameLingoAI/DirectHomeView.swift','ios/GameLingoAI/FloatingSubtitleController.swift','ios/GameLingoAI/GamePiPFrameRenderer.swift','ios/GameLingoAI/DirectGameCapture.swift'] if DIRECT else ['ios/GameLingoAI/GameLingoAIApp.swift','ios/GameLingoAI/ContentView.swift','ios/GameLingoAI/SubtitleInbox.swift','ios/GameLingoAI/FloatingSubtitleController.swift'])
 src_ext=['ios/BroadcastUpload/SampleHandler.swift']
 src_shared=['ios/Shared/SubtitleMessage.swift','ios/Shared/BuildIdentity.swift']
 plists=['ios/GameLingoAI/Info.plist','ios/BroadcastUpload/Info.plist','ios/GameLingoAI/InfoDirect.plist']
@@ -85,10 +86,13 @@ common={
  'GENERATE_INFOPLIST_FILE':'NO', 'SWIFT_EMIT_LOC_STRINGS':'YES',
  'ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS':'NO',
 }
+if MLKIT:
+    common.update({'MARKETING_VERSION':'3.6.0', 'CURRENT_PROJECT_VERSION':'13'})
+
 app_build={**common, 'PRODUCT_BUNDLE_IDENTIFIER':BUNDLE_ID,
  'INFOPLIST_FILE':'ios/GameLingoAI/InfoDirect.plist' if DIRECT else 'ios/GameLingoAI/Info.plist',
  'CODE_SIGN_ENTITLEMENTS':'' if DIRECT else 'ios/GameLingoAI/GameLingoAI.entitlements',
- 'SWIFT_ACTIVE_COMPILATION_CONDITIONS':'DIRECT_CAPTURE' if DIRECT else '',
+ 'SWIFT_ACTIVE_COMPILATION_CONDITIONS':('DIRECT_CAPTURE MLKIT_OCR' if MLKIT else 'DIRECT_CAPTURE') if DIRECT else '',
  'PRODUCT_NAME':'GameLingoAI',
  'ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon'}
 ext_build={**common, 'PRODUCT_BUNDLE_IDENTIFIER':BUNDLE_ID+'.BroadcastUpload',
@@ -130,4 +134,4 @@ for key,item in sorted(objects.items(),key=lambda kv:(kv[1]['isa'],kv[0])):
     lines.append(f'\t\t{oid(key)} /* {key} */ = {Q(item)};')
 lines+=['\t};',f'\trootObject = {oid("project:root")} /* Project object */;','}']
 (DEST/'project.pbxproj').write_text('\n'.join(lines)+'\n')
-print('Generated',DEST/'project.pbxproj', 'mode:', 'direct-iOS27' if DIRECT else 'replaykit')
+print('Generated',DEST/'project.pbxproj', 'mode:', 'direct-mlkit-iOS27' if MLKIT else ('direct-iOS27' if DIRECT else 'replaykit'))
