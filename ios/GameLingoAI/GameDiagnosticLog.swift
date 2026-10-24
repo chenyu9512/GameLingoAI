@@ -33,7 +33,8 @@ final class GameDiagnosticLog {
             }
             let accepted = ["ocr_ms", "queue_ms", "dropped", "confidence_pct",
                             "rejected_lines", "bottom_ms", "translation_ms",
-                            "capture_to_translation_ms", "failure_count", "accurate_rescans"]
+                            "capture_to_translation_ms", "failure_count", "accurate_rescans",
+                            "sampled_out"]
             let clean = metrics.filter { accepted.contains($0.key) }
                 .mapValues { max(0, min($0, 600_000)) }
             let record = Record(timestamp: ISO8601DateFormatter().string(from: Date()),
