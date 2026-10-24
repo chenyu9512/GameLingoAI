@@ -19,9 +19,13 @@ enum GameOCRRouting {
     static func shouldEnhance(confidence: Double, candidateCount: Int,
                               mode: Mode, performanceFast: Bool,
                               millisecondsSinceLast: Double) -> Bool {
-        guard mode == .paddleHybrid && !performanceFast &&
-              candidateCount > 0 && millisecondsSinceLast >= 1200 else { return false }
-        return confidence < 0.72
+        guard mode == .paddleHybrid && candidateCount > 0 else { return false }
+        // Fast performance mode still honors the user's hybrid choice, but
+        // limits expensive enhancement to very poor OCR once per 3 seconds.
+        // Balanced mode can enhance more often with a broader threshold.
+        return performanceFast
+            ? millisecondsSinceLast >= 3000 && confidence < 0.45
+            : millisecondsSinceLast >= 1200 && confidence < 0.72
     }
 
     static let commonOCRLanguages = [
