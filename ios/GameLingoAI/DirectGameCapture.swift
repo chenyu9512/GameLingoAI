@@ -42,7 +42,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
     @Published private(set) var lastError = ""
     @Published private(set) var detectedSourceLanguage = "待检测"
     @Published private(set) var accurateRescanCount = 0
-    @Published private(set) var activeOCRName = "Apple Vision"
+    @Published private(set) var activeOCRName = "等待识别"
+    @Published private(set) var selectedOCRName = "Apple Vision"
+    @Published private(set) var ocrEngineStatus = "尚未开始识别"
     @Published private(set) var ocrConfidenceEstimated = false
     @Published private(set) var detectedLayout: GameFrameLayout = .portrait
     @Published private(set) var screenDimensions = "等待画面"
@@ -53,6 +55,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         var name: String
         var language: String
         var ocrEngine: GameOCREngine
+        var targetLanguage: String
         var portraitROI: CGRect
         var landscapeROI: CGRect
         var rotation: GameScreenRotation
@@ -64,7 +67,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         var bottomScan: Bool
 
         static let initial = Snapshot(profileID: UUID(), name: "默认游戏", language: "auto",
-                                      ocrEngine: .vision,
+                                      ocrEngine: .vision, targetLanguage: "en",
                                       portraitROI: GameOCRBox.dialogue.rect,
                                       landscapeROI: GameOCRBox.landscapeDialogue.rect,
                                       rotation: .automatic,
@@ -187,6 +190,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let mergedTerms = GameRPGDictionary.glossary(for: profile)
         let snapshot = Snapshot(profileID: profile.id, name: profile.name, language: profile.language,
                                 ocrEngine: profile.selectedOCR,
+                                targetLanguage: GameLingoStore.shared.targetLanguage,
                                 portraitROI: profile.region.rect,
                                 landscapeROI: profile.region(for: .landscape).rect,
                                 rotation: profile.screenRotation,
@@ -237,6 +241,12 @@ final class DirectGameCapture: NSObject, ObservableObject,
         translationCache.removeAll(keepingCapacity: true)
         translationBackoff.reset()
         detectedSourceLanguage = GameLanguageSupport.isAutomatic(profile.language) ? "待检测" : profile.language
+        selectedOCRName = snapshot.ocrEngine.title
+        ocrEngineStatus = snapshot.ocrEngine == .vision
+            ? "配置已应用 · Vision" :
+              (GamePaddleOCR.isAvailable ? "混合模式已应用 · Paddle 按需增强" :
+                                       "混合模式已选择 · Paddle 模型不可用，仅使用 Vision")
+        activeOCRName = "等待下一帧"
         phase = isCapturing ? "已切换游戏设置" : "未启动"
         details = "当前游戏：" + profile.name
     }
@@ -631,7 +641,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             self.ocrConfidence = recognition.confidence
             self.ocrConfidenceEstimated = false
             self.activeOCRName = recognition.backend == .paddleHybrid ?
-                "Vision + PaddleOCR" : "Apple Vision 多语言"
+                "PaddleOCR 增强结果" : "Apple Vision 结果"
             GameDiagnosticLog.shared.event("ocr_sample", metrics: [
                 "ocr_ms": elapsedMs, "queue_ms": dispatchWait,
                 "dropped": skipped, "sampled_out": sampledOut,
@@ -1086,13 +1096,16 @@ final class DirectGameCapture: NSObject, ObservableObject,
     private func translate(_ text: String, profile: Snapshot,
                            revision: Int, detectedAt: TimeInterval) async {
         let started = CFAbsoluteTimeGetCurrent()
-        let key = profile.provider.rawValue + "|" + profile.name + "|" + profile.language + "|" + text
+        let key = profile.provider.rawValue + "|" + profile.name + "|" + profile.language
+            + "|" + profile.targetLanguage + "|" + text
         do {
             let result: String
-            if profile.language == "zh-Hans" {
+            if GameTranslationLanguages.normalized(profile.language)
+                == GameTranslationLanguages.normalized(profile.targetLanguage) {
                 // The requested target language is already present.
                 result = text
-            } else if let exact = profile.glossary[text] {
+            } else if profile.targetLanguage == "zh-Hans",
+                      let exact = profile.glossary[text] {
                 result = exact
             } else if let cached = translationCache[key] {
                 result = cached
@@ -1105,8 +1118,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
                 var pending: [TranslationSession.Request] = []
                 for (index, line) in lines.enumerated() {
                     let partKey = profile.provider.rawValue + "|" + profile.name
-                        + "|" + profile.language + "|" + line
-                    if let exact = profile.glossary[line] {
+                        + "|" + profile.language + "|" + profile.targetLanguage + "|" + line
+                    if profile.targetLanguage == "zh-Hans",
+                       let exact = profile.glossary[line] {
                         translated[index] = exact
                     } else if let cached = translationCache[partKey] {
                         translated[index] = cached
@@ -1118,7 +1132,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
                 if !pending.isEmpty {
                     let session = TranslationSession(
                         installedSource: Locale.Language(identifier: profile.language),
-                        target: Locale.Language(identifier: "zh-Hans"))
+                        target: Locale.Language(identifier: profile.targetLanguage))
                     for start in stride(from: 0, to: pending.count, by: 36) {
                         let group = Array(pending[start..<min(start + 36, pending.count)])
                         for try await response in session.translate(batch: group) {
@@ -1128,7 +1142,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
                                   translated.indices.contains(index) else { continue }
                             translated[index] = response.targetText
                             let partKey = profile.provider.rawValue + "|" + profile.name
-                                + "|" + profile.language + "|" + lines[index]
+                                + "|" + profile.language + "|" + profile.targetLanguage
+                                + "|" + lines[index]
                             translationCache[partKey] = response.targetText
                         }
                     }
@@ -1140,7 +1155,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
                 // Sending text to online providers is opt-in; the persisted
                 // provider defaults to offline and has no automatic failover.
                 result = try await GameOnlineTranslator.shared.translate(
-                    text, source: profile.language,
+                    text, source: profile.language, target: profile.targetLanguage,
                     provider: profile.provider, endpoint: profile.endpoint)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             }
