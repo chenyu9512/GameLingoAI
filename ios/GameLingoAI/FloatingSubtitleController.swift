@@ -54,6 +54,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     private var readinessSubscribed = false
     private var startAfterFirstFrame = false
     private var pendingStartChecks = 0
+    private var piPStartupRetryCycles = 0
     private var pipStartRequestedAt: CFTimeInterval = 0
     private var lastCaptureTime: TimeInterval = 0
     private var lastMeasuredCaptureTime: TimeInterval = 0
@@ -339,6 +340,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         launchFailed = false
         startAfterFirstFrame = true
         pendingStartChecks = 0
+        piPStartupRetryCycles = 0
         pipStartRequestedAt = CACurrentMediaTime()
         status = "正在准备首帧字幕…"
         renderFrame()
@@ -416,7 +418,10 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
             guard let self, generation == self.renderGeneration else { return }
             self.renderElapsedMs = Int(elapsed.rounded())
             guard let buffer else {
-                self.status = "PiP 字幕视频帧生成失败"
+                self.isPreparing = false
+                self.launchFailed = true
+                self.startAfterFirstFrame = false
+                self.status = "PiP 字幕视频帧生成失败，请重新尝试"
                 return
             }
             self.pendingSample = buffer // latest frame replaces any stalled frame
@@ -481,6 +486,16 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         }
         pendingStartChecks += 1
         guard pendingStartChecks <= 12 else {
+            if piPStartupRetryCycles < 1 {
+                piPStartupRetryCycles += 1
+                pendingStartChecks = 0
+                status = "PiP 首次未就绪 · 自动重试一次"
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                    guard let self, self.startAfterFirstFrame else { return }
+                    self.renderFrame()
+                }
+                return
+            }
             startAfterFirstFrame = false
             isPreparing = false
             launchFailed = true
