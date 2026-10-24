@@ -144,6 +144,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
     private var lastAccurateFingerprint: UInt64 = 0
     private var firstOCRLogged = false
     private var accurateSuppressed = 0
+    private var sourceContext = GameAutoSourceContext()
+    private var contextualSourcesUsed = 0
 
     // Mutable only on the main actor.
     private var stream: SCStream?
@@ -219,6 +221,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
             self?.candidate = ""
             self?.candidateCount = 0
             self?.candidateConfidence = 0
+            self?.sourceContext.reset()
+            self?.lastAccurateFingerprint = 0
+            self?.lastAccurateAt = 0
         }
         // Ensure no earlier profile's translation can overwrite the new one.
         translationRevision += 1
@@ -295,6 +300,14 @@ final class DirectGameCapture: NSObject, ObservableObject,
     }
 
     private func launch(_ filter: SCContentFilter) {
+        // Reset session-specific diagnostics and language history on the OCR
+        // worker; avoid carrying state across two separate capture sessions.
+        ocrQueue.async { [weak self] in
+            self?.firstOCRLogged = false
+            self?.sourceContext.reset()
+            self?.lastAccurateAt = 0
+            self?.lastAccurateFingerprint = 0
+        }
         captureGeneration += 1
         gate.lock()
         frameRevision += 1
@@ -471,6 +484,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             candidate = ""
             candidateCount = 0
             candidateConfidence = 0
+            sourceContext.reset()
             gate.lock()
             lastMenuFingerprint = 0
             lastPageFingerprint = 0
@@ -588,6 +602,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let latestBottomMs = lastBottomDuration
         let preciseRescans = accurateRescanTotal
         let suppressedRescans = accurateSuppressed
+        let contextUses = contextualSourcesUsed
         // Snapshot on the OCR worker before crossing to the main queue.
         // This avoids reading mutable worker state from an escaping closure.
         let paddleDurationMs = lastPaddleMs
@@ -623,7 +638,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
                 "confidence_available": 1,
                 "rejected_lines": recognition.rejected, "bottom_ms": latestBottomMs,
                 "accurate_rescans": preciseRescans,
-                "accurate_suppressed": suppressedRescans
+                "accurate_suppressed": suppressedRescans,
+                "context_source_uses": contextUses
             ])
         }
         guard isCurrent(frame.revision) else { return }
@@ -660,8 +676,15 @@ final class DirectGameCapture: NSObject, ObservableObject,
         lastDialogueOCRAt = now
         // Keep the original profile's OCR preference, but pass the detected
         // source (not the sentinel "auto") into installed Translation sessions.
-        guard let resolvedSource = GameLanguageSupport.resolvedSource(
-            in: text, configured: snapshot.language) else {
+        let detection = GameLanguageSupport.resolvedSource(
+            in: text, configured: snapshot.language)
+        let sourceResult: (language: String?, inferred: Bool)
+        if GameLanguageSupport.isAutomatic(snapshot.language) {
+            sourceResult = sourceContext.resolve(text: text, detected: detection, at: now)
+        } else {
+            sourceResult = (detection, false)
+        }
+        guard let resolvedSource = sourceResult.language else {
             GameDiagnosticLog.shared.event("pipeline_skip", metrics: ["reason_code": 3])
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.isCurrent(frame.revision) else { return }
@@ -671,6 +694,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             }
             return
         }
+        if sourceResult.inferred { contextualSourcesUsed += 1 }
         var translationProfile = snapshot
         translationProfile.language = resolvedSource
         DispatchQueue.main.async { [weak self] in
@@ -984,11 +1008,14 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let threshold = snapshot.performance == .fast ? 0.42 : 0.66
         if snapshot.performance != .battery &&
            (first.text.isEmpty || first.confidence < threshold) {
-            let now = Date().timeIntervalSince1970
-            // The same unchanged scene should not trigger expensive Accurate
-            // OCR on every low-confidence confirmation frame.
-            if fingerprint != 0 && fingerprint == lastAccurateFingerprint &&
-               now - lastAccurateAt < 2.0 {
+            let now = ProcessInfo.processInfo.systemUptime
+            guard GameOCRRecoveryPolicy.shouldRecover(
+                text: first.text, confidence: first.confidence,
+                priorText: candidate, priorSamples: candidateCount,
+                fingerprint: fingerprint, lastFingerprint: lastAccurateFingerprint,
+                now: now, lastAt: lastAccurateAt,
+                fastMode: snapshot.performance == .fast
+            ) else {
                 accurateSuppressed += 1
                 return first
             }
