@@ -295,7 +295,7 @@ struct DirectHomeView: View {
 
 
             panel {
-                GameLanguagePackView()
+                GameLanguagePackView(preferredSource: store.activeProfile.language)
             }
 
             panel {
