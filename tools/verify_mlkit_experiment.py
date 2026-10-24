@@ -8,6 +8,8 @@ def read(path):
 generator = read("tools/build_xcodeproj.py")
 project = read("GameLingoAI.xcodeproj/project.pbxproj")
 adapter = read("ios/GameLingoAI/GameMLKitJapaneseOCR.swift")
+backoff = read("ios/GameLingoAI/GameTranslationBackoff.swift")
+diagnostics = read("ios/GameLingoAI/GameDiagnosticLog.swift")
 capture = read("ios/GameLingoAI/DirectGameCapture.swift")
 ui = read("ios/GameLingoAI/DirectHomeView.swift")
 store = read("ios/GameLingoAI/GameLingoStore.swift")
@@ -21,9 +23,9 @@ checks = {
         "GameMLKitJapaneseOCR.swift" in generator and "GameMLKitJapaneseOCR.swift" in project,
     "experimental build has explicit Swift compilation flag":
         "'DIRECT_CAPTURE MLKIT_OCR'" in generator and "MLKIT_OCR" in project,
-    "build 13 separated from stable build 12":
+    "experimental build 14 separated from stable build 12":
         "'MARKETING_VERSION':'3.6.0'" in generator
-        and "'CURRENT_PROJECT_VERSION':'13'" in generator,
+        and "'CURRENT_PROJECT_VERSION':'14'" in generator,
     "Google model pinned for reproducible installation":
         "GoogleMLKit/TextRecognitionJapanese', '9.0.0'" in podfile,
     "dedicated CocoaPods experimental workflow":
@@ -52,6 +54,17 @@ checks = {
     "rollback to Vision when detector throws":
         'self.lastError = "ML Kit OCR： "' in capture
         and "let first = pass(.fast)" in capture,
+    "translation retry backoff compiled with experimental app":
+        "GameTranslationBackoff.swift" in generator
+        and "GameTranslationBackoff.swift" in project
+        and "translationBackoff.failed(" in capture
+        and "translationBackoff.remainingMilliseconds(" in capture
+        and "nextAllowedAt" in backoff,
+    "privacy-safe skipped OCR and translation failure diagnostics":
+        '"pipeline_skip"' in diagnostics
+        and '"error_domain_code"' in diagnostics
+        and '"ocr_requested_backend"' in diagnostics
+        and "reason_code" in capture,
     "legacy OCR menu and bottom paths intact":
         "private func recognizeBottom(" in capture
         and "private func recognizeFullScreen(" in capture,
