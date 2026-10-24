@@ -143,6 +143,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
     private var lastAccurateAt: TimeInterval = 0
     private var lastAccurateFingerprint: UInt64 = 0
     private var firstOCRLogged = false
+    private var firstStableOCRLogged = false
+    private var firstSourceLogged = false
+    private var workerCaptureStartedAt: TimeInterval = 0
     private var accurateSuppressed = 0
     private var sourceContext = GameAutoSourceContext()
     private var contextualSourcesUsed = 0
@@ -304,6 +307,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
         // worker; avoid carrying state across two separate capture sessions.
         ocrQueue.async { [weak self] in
             self?.firstOCRLogged = false
+            self?.firstStableOCRLogged = false
+            self?.firstSourceLogged = false
+            self?.workerCaptureStartedAt = Date().timeIntervalSince1970
             self?.sourceContext.reset()
             self?.lastAccurateAt = 0
             self?.lastAccurateFingerprint = 0
@@ -673,6 +679,13 @@ final class DirectGameCapture: NSObject, ObservableObject,
             ])
             return
         }
+        if !firstStableOCRLogged {
+            firstStableOCRLogged = true
+            GameDiagnosticLog.shared.event("first_stable_ocr", metrics: [
+                "first_stable_ocr_ms": max(0, Int(
+                    (Date().timeIntervalSince1970 - workerCaptureStartedAt) * 1000))
+            ])
+        }
         lastDialogueOCRAt = now
         // Keep the original profile's OCR preference, but pass the detected
         // source (not the sentinel "auto") into installed Translation sessions.
@@ -695,6 +708,14 @@ final class DirectGameCapture: NSObject, ObservableObject,
             return
         }
         if sourceResult.inferred { contextualSourcesUsed += 1 }
+        if !firstSourceLogged {
+            firstSourceLogged = true
+            GameDiagnosticLog.shared.event("first_source_resolved", metrics: [
+                "first_source_ms": max(0, Int(
+                    (Date().timeIntervalSince1970 - workerCaptureStartedAt) * 1000)),
+                "source_context": sourceResult.inferred ? 1 : 0
+            ])
+        }
         var translationProfile = snapshot
         translationProfile.language = resolvedSource
         DispatchQueue.main.async { [weak self] in
