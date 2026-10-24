@@ -71,6 +71,9 @@ workflows:
           echo "Testing TXT glossary UTF-8, UTF-16 and collision handling"
           xcrun swiftc ios/GameLingoAI/GameGlossaryTXTParser.swift tests/glossary_txt_smoke.swift -o /tmp/gamelingo-glossary-smoke
           /tmp/gamelingo-glossary-smoke
+          echo "Checking automatic Vision language selection and local source detection"
+          xcrun swiftc ios/GameLingoAI/GameLanguageSupport.swift tests/auto_language_smoke.swift -o /tmp/gamelingo-auto-language-smoke
+          /tmp/gamelingo-auto-language-smoke
           echo "Running Japanese OCR smoke tests on build Mac"
           xcrun swiftc ios/GameLingoAI/GameOCRQuality.swift tests/ocr_quality_smoke.swift -o /tmp/gamelingo-ocr-smoke
           /tmp/gamelingo-ocr-smoke
