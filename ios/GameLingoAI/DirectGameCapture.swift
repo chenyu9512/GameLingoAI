@@ -130,6 +130,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
     private var candidate = ""
     private var candidateCount = 0
     private var candidateConfidence = 0.0
+    // Owned exclusively by ocrQueue. No OCR text is persisted by this tracker.
+    private var sourceTracker = GameSourceLanguageTracker()
     // Worker-only counter; UI and JSONL read snapshots on the main queue.
     private var accurateRescanTotal = 0
 
@@ -143,6 +145,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
     private var latestSubmittedAt: TimeInterval = 0
     private var lastCompleted = ""
     private var translationCache: [String: String] = [:]
+    private var translationRetry = GameTranslationRetryPolicy()
+    private var offlineStatuses: [String: (status: LanguageAvailability.Status, expiresAt: TimeInterval)] = [:]
     private var retries = 0
     private var captureRetries = 0
     private var lastRequestedFilter: SCContentFilter?
@@ -204,6 +208,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             self?.candidate = ""
             self?.candidateCount = 0
             self?.candidateConfidence = 0
+            self?.sourceTracker.reset()
         }
         // Ensure no earlier profile's translation can overwrite the new one.
         translationRevision += 1
@@ -212,6 +217,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
         latestSubmitted = ""
         lastCompleted = ""
         translationCache.removeAll(keepingCapacity: true)
+        translationRetry.reset()
+        offlineStatuses.removeAll()
         detectedSourceLanguage = GameLanguageSupport.isAutomatic(profile.language) ? "待检测" : profile.language
         phase = isCapturing ? "已切换游戏设置" : "未启动"
         details = "当前游戏：" + profile.name
@@ -449,6 +456,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             candidate = ""
             candidateCount = 0
             candidateConfidence = 0
+            sourceTracker.reset()
             gate.lock()
             lastMenuFingerprint = 0
             lastPageFingerprint = 0
@@ -610,8 +618,10 @@ final class DirectGameCapture: NSObject, ObservableObject,
         lastDialogueOCRAt = now
         // Keep the original profile's OCR preference, but pass the detected
         // source (not the sentinel "auto") into installed Translation sessions.
-        guard let resolvedSource = GameLanguageSupport.resolvedSource(
-            in: text, configured: snapshot.language) else {
+        let inferredSource = GameLanguageSupport.resolvedSource(
+            in: text, configured: snapshot.language)
+        guard let resolvedSource = sourceTracker.resolve(
+            configured: snapshot.language, detected: inferredSource, text: text) else {
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.isCurrent(frame.revision) else { return }
                 self.detectedSourceLanguage = "未确定"
