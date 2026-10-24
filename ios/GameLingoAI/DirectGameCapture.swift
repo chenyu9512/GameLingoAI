@@ -100,6 +100,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
     private var lastOCRAt: TimeInterval = 0
     private var lastBottomAt: TimeInterval = 0
     private var lastBottomText = ""
+    private var lastBottomFingerprint: UInt64 = 0
     private var lastBottomDuration = 0
     private var bottomScanInFlight = false
     private var lastDialogueOCRAt: TimeInterval = 0
@@ -189,6 +190,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             self?.lastFrameGeometry = ""
             self?.lastBottomAt = 0
             self?.lastBottomText = ""
+            self?.lastBottomFingerprint = 0
             self?.candidate = ""
             self?.candidateCount = 0
             self?.candidateConfidence = 0
@@ -419,6 +421,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             lastOCRAt = 0
             lastBottomAt = 0
             lastBottomText = ""
+            lastBottomFingerprint = 0
             candidate = ""
             candidateCount = 0
             candidateConfidence = 0
@@ -477,6 +480,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
         var recognition = recognize(buffer, using: snapshot,
                                     geometry: geometry, region: region)
         if snapshot.bottomScan {
+            let currentBottomFingerprint = frameFingerprint(
+                buffer, region: geometry.rawRegion(for: bottomRegion))
             let interval = snapshot.performance == .battery ? 4.0 : 1.7
             if !bottomScanInFlight && (now - lastBottomAt >= interval || lastBottomAt == 0) {
                 lastBottomAt = now
@@ -494,6 +499,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
                         self.bottomScanInFlight = false
                         guard self.isCurrent(frame.revision) else { return }
                         self.lastBottomText = result
+                        self.lastBottomFingerprint = currentBottomFingerprint
                         self.lastBottomDuration = duration
                         // Refresh the bottom content on the next new frame,
                         // including when the game screen remains static.
@@ -501,7 +507,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
                     }
                 }
             }
-            if !lastBottomText.isEmpty && now - lastBottomAt <= 5.0 {
+            // Never append an earlier screen's footer/menu to a newer scene.
+            if !lastBottomText.isEmpty && now - lastBottomAt <= 5.0 &&
+               currentBottomFingerprint == lastBottomFingerprint {
                 let primary = recognition.text.components(separatedBy: "\n")
                 let supplemental = lastBottomText.components(separatedBy: "\n").filter { line in
                     !line.isEmpty && !primary.contains(where: {
