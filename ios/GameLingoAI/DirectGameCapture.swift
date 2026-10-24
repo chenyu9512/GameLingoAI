@@ -149,6 +149,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
     private var lastCompleted = ""
     private var translationCache: [String: String] = [:]
     private var retries = 0
+    private var translationBackoff = GameTranslationBackoff()
     private var captureRetries = 0
     private var lastRequestedFilter: SCContentFilter?
 
@@ -218,6 +219,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
         latestSubmitted = ""
         lastCompleted = ""
         translationCache.removeAll(keepingCapacity: true)
+        retries = 0
+        translationBackoff.reset()
         detectedSourceLanguage = GameLanguageSupport.isAutomatic(profile.language) ? "待检测" : profile.language
         phase = isCapturing ? "已切换游戏设置" : "未启动"
         details = "当前游戏：" + profile.name
@@ -250,6 +253,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
         pendingTranslation?.cancel()
         translationRevision += 1
         pendingTranslation = nil
+        retries = 0
+        translationBackoff.reset()
         isCapturing = false
         GameDiagnosticLog.shared.event("capture_stop")
         phase = "已停止"
@@ -290,6 +295,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
         pendingFrame = nil
         gate.unlock()
         let generation = captureGeneration
+        translationBackoff.reset()
+        retries = 0
         let old = stream
         old?.stopCapture { _ in }
         stream = nil
@@ -590,6 +597,10 @@ final class DirectGameCapture: NSObject, ObservableObject,
                 "confidence_pct": recognition.backend == .vision ?
                     Int(recognition.confidence * 100) : 0,
                 "ocr_backend": recognition.backend == .vision ? 1 : 2,
+                "ocr_requested_backend": snapshot.ocrEngine == .vision ? 1 : 2,
+                "ocr_mlkit_eligible": snapshot.ocrEngine == .mlkitJapanese &&
+                    snapshot.language.hasPrefix("ja") && GameMLKitJapaneseOCR.isAvailable ? 1 : 0,
+                "configured_auto": GameLanguageSupport.isAutomatic(snapshot.language) ? 1 : 0,
                 "confidence_available": recognition.backend == .vision ? 1 : 0,
                 "rejected_lines": recognition.rejected, "bottom_ms": latestBottomMs,
                 "accurate_rescans": preciseRescans
@@ -598,6 +609,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         guard isCurrent(frame.revision) else { return }
         let text = recognition.text
         guard !text.isEmpty else {
+            GameDiagnosticLog.shared.event("pipeline_skip", metrics: ["reason_code": 1])
             DispatchQueue.main.async {
                 guard self.isCurrent(frame.revision) else { return }
                 self.phase = "等待对白"
@@ -619,12 +631,18 @@ final class DirectGameCapture: NSObject, ObservableObject,
         // Japanese scenes. Visible PiP pagination handles the presentation.
         let needed = GameOCRQuality.requiredStableFrames(confidence: recognition.confidence,
                                                         fastMode: snapshot.performance == .fast)
-        guard candidateCount >= needed else { return }
+        guard candidateCount >= needed else {
+            GameDiagnosticLog.shared.event("pipeline_skip", metrics: [
+                "reason_code": 2, "confidence_pct": Int(recognition.confidence * 100)
+            ])
+            return
+        }
         lastDialogueOCRAt = now
         // Keep the original profile's OCR preference, but pass the detected
         // source (not the sentinel "auto") into installed Translation sessions.
         guard let resolvedSource = GameLanguageSupport.resolvedSource(
             in: text, configured: snapshot.language) else {
+            GameDiagnosticLog.shared.event("pipeline_skip", metrics: ["reason_code": 3])
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.isCurrent(frame.revision) else { return }
                 self.detectedSourceLanguage = "未确定"
@@ -954,8 +972,21 @@ final class DirectGameCapture: NSObject, ObservableObject,
     @MainActor
     private func submit(_ text: String, profile: Snapshot, detectedAt: TimeInterval) {
         let now = Date().timeIntervalSince1970
-        if text == lastCompleted { return }
+        if text == lastCompleted {
+            GameDiagnosticLog.shared.event("pipeline_skip", metrics: ["reason_code": 4])
+            return
+        }
+        let retryWait = translationBackoff.remainingMilliseconds(at: now)
+        if retryWait > 0 {
+            // A failing translation provider must not be called again for
+            // every new OCR phrase. Keep the last successful PiP text visible.
+            GameDiagnosticLog.shared.event("pipeline_skip", metrics: [
+                "reason_code": 5, "retry_after_ms": retryWait
+            ])
+            return
+        }
         if text == latestSubmitted && now - latestSubmittedAt < Double(2 + retries * 2) {
+            GameDiagnosticLog.shared.event("pipeline_skip", metrics: ["reason_code": 6])
             return
         }
         latestSubmitted = text
@@ -1035,9 +1066,15 @@ final class DirectGameCapture: NSObject, ObservableObject,
             }
             guard revision == translationRevision && !Task.isCancelled else { return }
             guard !result.isEmpty else {
-                GameDiagnosticLog.shared.event("translation_failure", metrics: ["failure_count": failures + 1])
+                let cooldown = translationBackoff.failed(at: Date().timeIntervalSince1970)
+                GameDiagnosticLog.shared.event("translation_failure", metrics: [
+                    "failure_count": failures + 1, "error_domain_code": 0,
+                    "error_code": 0, "provider_code": profile.provider == .offline ? 1 : 2,
+                    "retry_after_ms": cooldown,
+                    "translation_ms": Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
+                ])
                 phase = "空译文"
-                details = "系统没有返回翻译内容"
+                details = "系统没有返回翻译内容；\(cooldown / 1000) 秒后自动重试"
                 failures += 1
                 retries = min(retries + 1, 3)
                 return
@@ -1045,6 +1082,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             translationCache[key] = result
             if translationCache.count > 160 { translationCache.removeAll(keepingCapacity: true) }
             retries = 0
+            translationBackoff.reset()
             lastCompleted = text
             original = text
             latest = result
@@ -1065,9 +1103,34 @@ final class DirectGameCapture: NSObject, ObservableObject,
         } catch {
             guard revision == translationRevision && !Task.isCancelled else { return }
             retries = min(retries + 1, 3)
-            GameDiagnosticLog.shared.event("translation_failure", metrics: ["failure_count": failures + 1])
+            let cooldown = translationBackoff.failed(at: Date().timeIntervalSince1970)
+            let nsError = error as NSError
+            let domainCode: Int
+            if nsError.domain.localizedCaseInsensitiveContains("Translation") {
+                domainCode = 1
+            } else if nsError.domain == NSURLErrorDomain {
+                domainCode = 2
+            } else if nsError.domain == NSCocoaErrorDomain {
+                domainCode = 3
+            } else {
+                domainCode = 9
+            }
+            // Only numeric error metadata: never persist source text, error
+            // descriptions, tokens, or API endpoints in diagnostic exports.
+            GameDiagnosticLog.shared.event("translation_failure", metrics: [
+                "failure_count": failures + 1,
+                "provider_code": profile.provider == .offline ? 1 : 2,
+                "error_domain_code": domainCode,
+                "error_code": min(600_000, abs(nsError.code)),
+                "error_negative": nsError.code < 0 ? 1 : 0,
+                "retry_after_ms": cooldown,
+                "translation_ms": Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
+            ])
             phase = profile.provider == .offline ? "本机翻译失败" : "在线翻译失败"
-            details = error.localizedDescription
+            let guidance = profile.provider == .offline
+                ? "请确认已经准备对应语言→简体中文的系统翻译包。"
+                : "请检查翻译服务的额度、网络与密钥。"
+            details = error.localizedDescription + " · \(cooldown / 1000) 秒后重试。 " + guidance
             lastError = error.localizedDescription
             failures += 1
             // Do not change lastCompleted, so the next stable OCR may retry.
