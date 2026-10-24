@@ -30,9 +30,6 @@ struct DirectHomeView: View {
     @State private var sampleImage: UIImage?
     @State private var regionPhoto: PhotosPickerItem?
     @State private var editingLayout: GameFrameLayout = .portrait
-    @State private var translationPreparation: TranslationSession.Configuration?
-    @State private var preparationState = "首次使用请准备系统离线语言包"
-    @State private var downloadSourceLanguage = "ja"
     @State private var screenshot: PhotosPickerItem?
     @State private var screenshotText = ""
     @State private var screenshotResult = ""
@@ -40,6 +37,7 @@ struct DirectHomeView: View {
     @State private var screenshotConfiguration: TranslationSession.Configuration?
     @State private var historySearch = ""
     @State private var showOCRDebug = false
+    @State private var showDiagnostics = false
     @State private var showingOnboarding = false
     @State private var showingRestore = false
     @State private var restoreJSONString = ""
@@ -76,8 +74,6 @@ struct DirectHomeView: View {
         .onAppear {
             capture.setHostAppForeground(true)
             profileDraft = store.activeProfile
-            downloadSourceLanguage = GameLanguageSupport.isAutomatic(store.activeProfile.language)
-                ? "ja" : store.activeProfile.language
             updateCaptureConfiguration()
             configureOverlay()
             if !store.onboardingComplete { showingOnboarding = true }
@@ -137,14 +133,6 @@ struct DirectHomeView: View {
             for: UIApplication.didBecomeActiveNotification)) { _ in
             capture.heartbeat()
         }
-        .translationTask(translationPreparation) { session in
-            do {
-                try await session.prepareTranslation()
-                preparationState = "语言包准备完成；可离线翻译"
-            } catch {
-                preparationState = "准备失败：" + error.localizedDescription
-            }
-        }
         .translationTask(screenshotConfiguration) { session in
             guard !screenshotText.isEmpty else { return }
             do {
@@ -171,7 +159,7 @@ struct DirectHomeView: View {
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text("GameLingo").font(.system(size: 27, weight: .bold, design: .rounded))
-                Text("DIRECT 3.5  ·  LIVE TRANSLATION")
+                Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")  ·  LIVE")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(mint)
             }
@@ -245,6 +233,18 @@ struct DirectHomeView: View {
 
     private var realtimePage: some View {
         VStack(alignment: .leading, spacing: 16) {
+            panel {
+                HStack {
+                    Label("开始实时翻译", systemImage: "waveform.path")
+                        .font(.headline)
+                    Spacer()
+                    Text(capture.isCapturing ? "采集中" : "待连接")
+                        .font(.caption.bold()).foregroundStyle(capture.isCapturing ? mint : .secondary)
+                }
+                DirectCapturePanel(profile: store.activeProfile, performance: store.performance)
+                Text("选择整个屏幕后返回游戏；OCR 和字幕会自动更新。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             statusDashboard
             panel {
                 HStack(spacing: 9) {
@@ -288,45 +288,14 @@ struct DirectHomeView: View {
                     Text("自动识别无需预设源语言；离线翻译仍需要提前安装实际语言的翻译包。")
                         .font(.caption2).foregroundStyle(.white.opacity(0.73))
                 }
-                Text("按需下载语言包（不随 IPA 内置）")
-                    .font(.caption.bold()).foregroundStyle(mint)
-                TextField("源语言代码，如 ja、en、ko、fr、de", text: $downloadSourceLanguage)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .textFieldStyle(.roundedBorder)
-                Picker("快速选择语言包", selection: $downloadSourceLanguage) {
-                    Text("日语 ja").tag("ja")
-                    Text("英语 en").tag("en")
-                    Text("韩语 ko").tag("ko")
-                    Text("法语 fr").tag("fr")
-                    Text("德语 de").tag("de")
-                    Text("西班牙语 es").tag("es")
-                    Text("意大利语 it").tag("it")
-                    Text("葡萄牙语 pt").tag("pt")
-                    Text("俄语 ru").tag("ru")
-                }.pickerStyle(.menu).tint(mint)
-                Button {
-                    let code = downloadSourceLanguage
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !code.isEmpty else {
-                        preparationState = "请先填写 BCP-47 语言代码"
-                        return
-                    }
-                    guard code != "zh-Hans" else {
-                        preparationState = "源语言与目标中文相同，无需下载翻译包"
-                        return
-                    }
-                    translationPreparation = TranslationSession.Configuration(
-                        source: Locale.Language(identifier: code),
-                        target: Locale.Language(identifier: "zh-Hans"))
-                    preparationState = "正在请求系统安装对应语言资源…"
-                } label: {
-                    Label("按需准备 / 下载所选系统语言", systemImage: "arrow.down.circle")
-                        .frame(maxWidth: .infinity)
-                }.buttonStyle(.bordered)
-                Text(preparationState).font(.caption2).foregroundStyle(.white.opacity(0.68))
-                Text("语言由 iOS Translation 管理；需要用户确认和网络下载。非所有语言对都受设备支持。下载后在游戏配置中选择同一源语言。")
-                    .font(.caption2).foregroundStyle(.white.opacity(0.65))
+                Text("当前识别：\\(capture.activeOCRName)")
+                    .font(.caption).foregroundStyle(mint)
+
+            }
+
+
+            panel {
+                GameLanguagePackView()
             }
 
             panel {
@@ -392,13 +361,6 @@ struct DirectHomeView: View {
             }
 
             panel {
-                sectionTitle("实时屏幕翻译", icon: "viewfinder")
-                DirectCapturePanel(profile: store.activeProfile, performance: store.performance)
-                Text("请在系统选择器中选择整个屏幕，再返回游戏。")
-                    .font(.caption2).foregroundStyle(.white.opacity(0.7))
-            }
-
-            panel {
                 sectionTitle("最新对白 · 原文 / 中文", icon: "character.bubble")
                 Text(capture.original.isEmpty ? "等待识别游戏原文…" : capture.original)
                     .font(.subheadline).foregroundStyle(mint)
@@ -409,6 +371,7 @@ struct DirectHomeView: View {
                     .textSelection(.enabled)
             }
 
+            DisclosureGroup(isExpanded: $showDiagnostics) {
             panel {
                 sectionTitle("运行诊断", icon: "waveform.path.ecg")
                 HStack(spacing: 6) {
@@ -491,6 +454,11 @@ struct DirectHomeView: View {
                 ShareLink(item: capture.diagnostics) {
                     Label("分享诊断文本（包含最近 OCR 文字）", systemImage: "square.and.arrow.up")
                 }.buttonStyle(.bordered)
+            }
+
+            } label: {
+                Label("高级运行诊断", systemImage: "waveform.path.ecg")
+                    .font(.subheadline.bold()).foregroundStyle(.secondary)
             }
 
             panel {
