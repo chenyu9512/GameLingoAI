@@ -138,16 +138,19 @@ final class GameOnlineTranslator: ObservableObject {
     private init() {}
 
     func test(provider: GameTranslationProvider,
-              endpoint: GameTranslationEndpoint) async -> Bool {
+              endpoint: GameTranslationEndpoint, target: String = "en") async -> Bool {
         isTesting = true
         lastTestResult = "连接测试中：仅发送一条测试短句"
         defer { isTesting = false }
         do {
-            let result = try await translate("勇者は旅に出た。",
-                                             source: "ja", provider: provider,
+            let source = GameTranslationLanguages.normalized(target) == "en" ? "fr" : "en"
+            let phrase = source == "fr" ? "Bonjour" : "Hello"
+            let result = try await translate(phrase,
+                                             source: source, target: target,
+                                             provider: provider,
                                              endpoint: endpoint, allowCache: false)
             guard !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  result != "勇者は旅に出た。" else {
+                  result != phrase else {
                 throw GameOnlineTranslationError.emptyResult
             }
             lastTested = provider
@@ -161,6 +164,7 @@ final class GameOnlineTranslator: ObservableObject {
     }
 
     func translate(_ text: String, source: String,
+                   target: String = "zh-Hans",
                    provider: GameTranslationProvider,
                    endpoint: GameTranslationEndpoint,
                    allowCache: Bool = true) async throws -> String {
@@ -171,16 +175,18 @@ final class GameOnlineTranslator: ObservableObject {
             in: value, configured: source) else {
             throw GameOnlineTranslationError.unknownSourceLanguage
         }
-        if source == "zh-Hans" { return value }
+        let target = GameTranslationLanguages.normalized(target)
+        if GameTranslationLanguages.normalized(source) == target { return value }
         if provider == .offline {
             let session = TranslationSession(
                 installedSource: Locale.Language(identifier: source),
-                target: Locale.Language(identifier: "zh-Hans"))
+                target: Locale.Language(identifier: target))
             return try await session.translate(value).targetText
         }
 
         // Provider choice is explicit. Never silently send text over the network.
-        let cacheKey = provider.rawValue + "|" + endpoint.url + "|" + source + "|" + value
+        let cacheKey = provider.rawValue + "|" + endpoint.url + "|" + source
+            + "|" + target + "|" + value
         if allowCache, let cached = requestCache[cacheKey] { return cached }
         let pieces = try provider == .myMemory
             ? splitUTF8(value, maxBytes: 440)
@@ -188,7 +194,7 @@ final class GameOnlineTranslator: ObservableObject {
         var results: [String] = []
         for piece in pieces {
             try Task.checkCancellation()
-            let response = try await onlinePiece(piece, source: source,
+            let response = try await onlinePiece(piece, source: source, target: target,
                                                  provider: provider, endpoint: endpoint)
             results.append(response)
         }
@@ -201,7 +207,7 @@ final class GameOnlineTranslator: ObservableObject {
         return combined
     }
 
-    private func onlinePiece(_ text: String, source: String,
+    private func onlinePiece(_ text: String, source: String, target: String,
                              provider: GameTranslationProvider,
                              endpoint: GameTranslationEndpoint) async throws -> String {
         try reserve(text.count, provider: provider, limit: endpoint.dailyCharacterLimit)
@@ -214,7 +220,8 @@ final class GameOnlineTranslator: ObservableObject {
             var url = URLComponents(string: "https://api.mymemory.translated.net/get")!
             url.queryItems = [
                 URLQueryItem(name: "q", value: text),
-                URLQueryItem(name: "langpair", value: source + "|zh-CN"),
+                URLQueryItem(name: "langpair", value: GameTranslationLanguages.apiCode(source)
+                                 + "|" + GameTranslationLanguages.apiCode(target)),
                 URLQueryItem(name: "mt", value: "1")
             ]
             guard let address = url.url else { throw GameOnlineTranslationError.invalidEndpoint }
@@ -239,7 +246,7 @@ final class GameOnlineTranslator: ObservableObject {
             components.queryItems = [
                 URLQueryItem(name: "api-version", value: "3.0"),
                 URLQueryItem(name: "from", value: source),
-                URLQueryItem(name: "to", value: "zh-Hans")
+                URLQueryItem(name: "to", value: target)
             ]
             var request = URLRequest(url: components.url!)
             request.httpMethod = "POST"
@@ -270,8 +277,8 @@ final class GameOnlineTranslator: ObservableObject {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue("DeepL-Auth-Key " + secret, forHTTPHeaderField: "Authorization")
             let body: [String: Any] = ["text": [text],
-                                       "source_lang": source.uppercased(),
-                                       "target_lang": "ZH-HANS"]
+                                       "source_lang": GameTranslationLanguages.deepLCode(source),
+                                       "target_lang": GameTranslationLanguages.deepLCode(target)]
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
             let json = try await requestJSON(request)
             guard let translations = json["translations"] as? [[String: Any]],
@@ -289,7 +296,7 @@ final class GameOnlineTranslator: ObservableObject {
             request.timeoutInterval = timeout
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             let body: [String: Any] = ["q": text, "source": source,
-                                       "target": "zh-CN", "format": "text"]
+                                       "target": GameTranslationLanguages.apiCode(target), "format": "text"]
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
             let json = try await requestJSON(request)
             guard let outer = json["data"] as? [String: Any],
@@ -305,10 +312,12 @@ final class GameOnlineTranslator: ObservableObject {
             request.timeoutInterval = timeout
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue("application/json", forHTTPHeaderField: "Accept")
-            let language = source == "zh-Hans" ? "zh" : source
+            let language = GameTranslationLanguages.apiCode(source)
+            let outputLanguage = GameTranslationLanguages.apiCode(target)
             var body: [String: String]
             if provider == .libreTranslate {
-                body = ["q": text, "source": language, "target": "zh", "format": "text"]
+                body = ["q": text, "source": language, "target": outputLanguage,
+                        "format": "text"]
                 if !key.isEmpty { body["api_key"] = key }
             } else {
                 for field in [endpoint.textField, endpoint.sourceField,
@@ -319,7 +328,7 @@ final class GameOnlineTranslator: ObservableObject {
                     }
                 }
                 body = [endpoint.textField: text, endpoint.sourceField: language,
-                        endpoint.targetField: "zh"]
+                        endpoint.targetField: outputLanguage]
                 if !key.isEmpty {
                     request.setValue(endpoint.apiKeyPrefix + key,
                                      forHTTPHeaderField: endpoint.apiKeyHeader)
