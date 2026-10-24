@@ -86,6 +86,10 @@ struct DirectHomeView: View {
         .onChange(of: scenePhase) { _, state in
             capture.setHostAppForeground(state == .active)
             if state == .background { store.flushHistory() }
+            if state == .active {
+                warmup.prepare(language: store.activeProfile.language,
+                               offline: store.provider == .offline)
+            }
         }
         .onChange(of: store.activeID) { _, _ in
             dragonQuestNotice = ""
@@ -94,7 +98,11 @@ struct DirectHomeView: View {
             warmup.prepare(language: store.activeProfile.language,
                            offline: store.provider == .offline)
         }
-        .onChange(of: store.profiles) { _, _ in updateCaptureConfiguration() }
+        .onChange(of: store.profiles) { _, _ in
+            updateCaptureConfiguration()
+            warmup.prepare(language: store.activeProfile.language,
+                           offline: store.provider == .offline)
+        }
         .onReceive(glossaryLibrary.$enabledByGame) { _ in
             DispatchQueue.main.async { updateCaptureConfiguration() }
         }
