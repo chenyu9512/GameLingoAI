@@ -20,7 +20,7 @@ cp "$SOURCE/inference.yml" "$MODEL_DIR/inference.yml"
 
 # Ruby YAML is available on Codemagic, no extra Python packages required.
 ruby -ryaml -e '
-  source = YAML.safe_load_file(ARGV[0])
+  source = YAML.load_file(ARGV[0])
   values = source.fetch("PostProcess").fetch("character_dict")
   abort("Empty character dictionary") unless values.is_a?(Array) && values.size > 100
   File.write(ARGV[1], values.map(&:to_s).join("\n") + "\n")
