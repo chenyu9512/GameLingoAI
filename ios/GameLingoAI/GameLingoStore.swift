@@ -108,6 +108,7 @@ enum GamePiPLayout: String, Codable, CaseIterable, Identifiable {
     case compact, standard, learning
     case multiBilingual, denseChinese, menuPages
     case fullBilingual, fullChinese, spatialMenu
+    case portraitScene, portraitFocus
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -120,6 +121,8 @@ enum GamePiPLayout: String, Codable, CaseIterable, Identifiable {
         case .fullBilingual: return "满窗双语阅读"
         case .fullChinese: return "满窗译文阅读"
         case .spatialMenu: return "原位菜单阅读"
+        case .portraitScene: return "竖版 · 全画面原位翻译"
+        case .portraitFocus: return "竖版 · 智能文字聚焦"
         }
     }
 }
@@ -207,7 +210,7 @@ final class GameLingoStore: ObservableObject {
         autoplay = stored?.autoplay ?? false
         playbackSeconds = stored?.playbackSeconds ?? 5.0
         readAloud = stored?.readAloud ?? false
-        pipLayout = stored?.pipLayout ?? .fullBilingual
+        pipLayout = stored?.pipLayout ?? .portraitScene
         subtitleMode = stored?.subtitleMode ?? .bilingual
         fontScale = stored?.fontScale
             ?? (UserDefaults.standard.object(forKey: "pip.subtitle.scale") as? Double)
