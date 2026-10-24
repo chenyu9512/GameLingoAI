@@ -22,6 +22,7 @@ struct GameMenuPage: Codable, Identifiable {
     var gameName: String
     var language: String
     var scannedAt: Date
+    var targetLanguage: String? = nil
     var blocks: [GameMenuBlock]
     // Optional for backwards-compatible decoding of pages saved before 3.2.
     var layout: GameFrameLayout? = nil
@@ -126,6 +127,7 @@ final class GameMenuCatalog: ObservableObject {
 
         // Do not retranslate or overwrite an unchanged page. This also keeps
         // complete menu translations available when the user returns to the app.
+        let targetLanguage = GameLingoStore.shared.targetLanguage
         let provider = overrideProvider ?? GameLingoStore.shared.provider
         let endpoint = GameLingoStore.shared.endpoint
         let endpointID = provider == .offline ? "" : endpoint.url
@@ -136,6 +138,7 @@ final class GameMenuCatalog: ObservableObject {
         let unchanged = !settingsInvalidated && (newFingerprint == fingerprint
             || previousSignature == signature)
             && savedPages.first?.profileID == profileID
+            && (savedPages.first?.targetLanguage ?? "zh-Hans") == targetLanguage
             && savedPages.first?.layout == layout
             && (savedPages.first?.provider ?? .offline) == provider
             && (savedPages.first?.endpointID ?? "") == endpointID
@@ -159,6 +162,7 @@ final class GameMenuCatalog: ObservableObject {
         let before: [GameMenuBlock] = mustIgnorePreviousGlossary ? [] :
             (savedPages.first(where: {
                 $0.profileID == profileID && $0.language == language
+                && ($0.targetLanguage ?? "zh-Hans") == targetLanguage
                 && $0.layout == layout && ($0.provider ?? .offline) == provider
                 && ($0.endpointID ?? "") == endpointID
             })?.blocks ?? [])
@@ -166,10 +170,12 @@ final class GameMenuCatalog: ObservableObject {
         for i in prepared.indices {
             let original = prepared[i].original
             let key = cacheKey(profileID: profileID, language: language,
+                               targetLanguage: targetLanguage,
                                source: original, provider: provider,
                                endpointID: endpointID)
-            // Never ask Translation to translate simplified Chinese into itself.
-            var result = language == "zh-Hans" ? original : (glossary[original] ?? cache[key])
+            // Glossary entries are Chinese; do not apply them to other targets.
+            var result = GameTranslationLanguages.normalized(language) == targetLanguage
+                ? original : ((targetLanguage == "zh-Hans" ? glossary[original] : nil) ?? cache[key])
             if result == nil {
                 result = before.first(where: {
                     normalized($0.original) == normalized(original)
@@ -185,10 +191,12 @@ final class GameMenuCatalog: ObservableObject {
         let pageID = unchanged ? (savedPages.first?.id ?? UUID()) : UUID()
         var page = GameMenuPage(id: pageID, profileID: profileID, gameName: gameName,
                                 language: language, scannedAt: Date(), blocks: prepared,
+                                targetLanguage: targetLanguage,
                                 layout: layout, provider: provider, endpointID: endpointID)
         savedPages.removeAll { $0.profileID == profileID
             && ($0.provider ?? .offline) == provider
             && ($0.endpointID ?? "") == endpointID
+            && ($0.targetLanguage ?? "zh-Hans") == targetLanguage
             && $0.blocks.map { $0.original } == prepared.map { $0.original } }
         savedPages.insert(page, at: 0)
         savedPages = Array(savedPages.prefix(12))
@@ -226,12 +234,13 @@ final class GameMenuCatalog: ObservableObject {
                     guard token == self.revision && !Task.isCancelled else { return }
                     do {
                         let translated = try await GameOnlineTranslator.shared.translate(
-                            source, source: language, provider: provider, endpoint: endpoint)
+                            source, source: language, target: targetLanguage,
+                            provider: provider, endpoint: endpoint)
                             .trimmingCharacters(in: .whitespacesAndNewlines)
                         guard token == self.revision && !Task.isCancelled else { return }
                         guard !translated.isEmpty else { continue }
                         let key = self.cacheKey(profileID: profileID, language: language,
-                                                source: source, provider: provider,
+                                                targetLanguage: targetLanguage, source: source, provider: provider,
                                                 endpointID: endpointID)
                         self.cache[key] = translated
                         for idx in page.blocks.indices where page.blocks[idx].original == source {
@@ -254,7 +263,7 @@ final class GameMenuCatalog: ObservableObject {
 
             let session = TranslationSession(
                 installedSource: Locale.Language(identifier: language),
-                target: Locale.Language(identifier: "zh-Hans"))
+                target: Locale.Language(identifier: targetLanguage))
             // Batch in reasonably sized groups; do not truncate the screen.
             // Each batch streams completed responses with client identifiers.
             for start in stride(from: 0, to: unknown.count, by: 24) {
@@ -274,7 +283,7 @@ final class GameMenuCatalog: ObservableObject {
                         guard !translated.isEmpty else { continue }
                         let source = group[index]
                         let key = self.cacheKey(profileID: profileID, language: language,
-                                                source: source, provider: provider,
+                                                targetLanguage: targetLanguage, source: source, provider: provider,
                                                 endpointID: endpointID)
                         self.cache[key] = translated
                         for idx in page.blocks.indices where page.blocks[idx].original == source {
@@ -312,11 +321,12 @@ final class GameMenuCatalog: ObservableObject {
             .filter { !$0.isEmpty }.joined(separator: " ")
     }
 
-    private func cacheKey(profileID: UUID, language: String, source: String,
+    private func cacheKey(profileID: UUID, language: String,
+                          targetLanguage: String, source: String,
                           provider: GameTranslationProvider,
                           endpointID: String) -> String {
         profileID.uuidString + "|" + provider.rawValue + "|" + endpointID
-            + "|" + language + "|" + normalized(source)
+            + "|" + language + "|" + targetLanguage + "|" + normalized(source)
     }
 
     private func persist() {
