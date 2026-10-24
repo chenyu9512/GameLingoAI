@@ -198,7 +198,7 @@ workflows:
 
 
   ios-universal-ocr-unsigned:
-    name: '02 | UNIVERSAL OCR v3.7.1 (Build 16) | Vision/Paddle | unsigned'
+    name: '02 | UNIVERSAL OCR v3.7.2 (Build 17) | Vision/Paddle | unsigned'
     instance_type: mac_mini_m2
     max_build_duration: 60
     environment:
@@ -220,6 +220,9 @@ workflows:
           echo "Running Universal OCR router smoke tests"
           xcrun swiftc ios/GameLingoAI/GameOCRRouting.swift tests/universal_ocr_routing_smoke.swift -o /tmp/gamelingo-universal-smoke
           /tmp/gamelingo-universal-smoke
+          echo "Testing OCR recovery budget and safe automatic source language"
+          xcrun swiftc ios/GameLingoAI/GameOCRSessionPolicy.swift tests/ocr_session_policy_smoke.swift -o /tmp/gamelingo-ocr-session-smoke
+          /tmp/gamelingo-ocr-session-smoke
           echo "Testing full-window paired PiP pagination"
           xcrun swiftc ios/GameLingoAI/GamePiPReadingLayout.swift tests/pip_reading_smoke.swift -o /tmp/gamelingo-pip-smoke
           /tmp/gamelingo-pip-smoke
@@ -299,13 +302,13 @@ workflows:
           test ! -d "$APP/PlugIns"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist" | grep -q '^3.7.1$'
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist" | grep -q '^16$'
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist" | grep -q '^3.7.2$'
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist" | grep -q '^17$'
           mkdir -p "$CM_BUILD_DIR/artifacts/Payload"
           cp -R "$APP" "$CM_BUILD_DIR/artifacts/Payload/GameLingoAI.app"
           cd "$CM_BUILD_DIR/artifacts"
-          /usr/bin/zip -qr GameLingoAI-UniversalOCR-v3.7.1-b16-unsigned.ipa Payload
+          /usr/bin/zip -qr GameLingoAI-UniversalOCR-v3.7.2-b17-unsigned.ipa Payload
           rm -rf Payload
     artifacts:
-      - artifacts/GameLingoAI-UniversalOCR-v3.7.1-b16-unsigned.ipa
+      - artifacts/GameLingoAI-UniversalOCR-v3.7.2-b17-unsigned.ipa
       - artifacts/xcodebuild-universal.log
