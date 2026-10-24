@@ -42,6 +42,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
     @Published private(set) var lastError = ""
     @Published private(set) var detectedSourceLanguage = "待检测"
     @Published private(set) var accurateRescanCount = 0
+    @Published private(set) var activeOCRName = "Apple Vision"
+    @Published private(set) var ocrConfidenceEstimated = false
     @Published private(set) var detectedLayout: GameFrameLayout = .portrait
     @Published private(set) var screenDimensions = "等待画面"
     @Published private(set) var activeRotation: GameScreenRotation = .automatic
@@ -50,6 +52,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         var profileID: UUID
         var name: String
         var language: String
+        var ocrEngine: GameOCREngine
         var portraitROI: CGRect
         var landscapeROI: CGRect
         var rotation: GameScreenRotation
@@ -61,6 +64,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         var bottomScan: Bool
 
         static let initial = Snapshot(profileID: UUID(), name: "默认游戏", language: "auto",
+                                      ocrEngine: .vision,
                                       portraitROI: GameOCRBox.dialogue.rect,
                                       landscapeROI: GameOCRBox.landscapeDialogue.rect,
                                       rotation: .automatic,
@@ -76,6 +80,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let lineCount: Int
         let raw: String
         let rejected: Int
+        var backend: GameOCREngine = .vision
     }
 
     // ScreenCaptureKit callbacks must never perform Vision OCR synchronously.
@@ -167,6 +172,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         // The user's editable glossary remains untouched and takes priority.
         let mergedTerms = GameRPGDictionary.glossary(for: profile)
         let snapshot = Snapshot(profileID: profile.id, name: profile.name, language: profile.language,
+                                ocrEngine: profile.selectedOCR,
                                 portraitROI: profile.region.rect,
                                 landscapeROI: profile.region(for: .landscape).rect,
                                 rotation: profile.screenRotation,
@@ -548,7 +554,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
                             ? 0.79 : recognition.confidence,
                         lineCount: recognition.lineCount + supplemental.count,
                         raw: recognition.raw + "\n[底部复检]\n" + additional,
-                        rejected: recognition.rejected)
+                        rejected: recognition.rejected,
+                        backend: recognition.backend)
                 }
             }
         }
@@ -574,10 +581,16 @@ final class DirectGameCapture: NSObject, ObservableObject,
             self.discardedCaptureFrames = skipped
             self.sampledOutCaptureFrames = sampledOut
             self.ocrConfidence = recognition.confidence
+            self.ocrConfidenceEstimated = recognition.backend == .mlkitJapanese
+            self.activeOCRName = recognition.backend == .mlkitJapanese ?
+                "ML Kit 日语" : "Apple Vision"
             GameDiagnosticLog.shared.event("ocr_sample", metrics: [
                 "ocr_ms": elapsedMs, "queue_ms": dispatchWait,
                 "dropped": skipped, "sampled_out": sampledOut,
-                "confidence_pct": Int(recognition.confidence * 100),
+                "confidence_pct": recognition.backend == .vision ?
+                    Int(recognition.confidence * 100) : 0,
+                "ocr_backend": recognition.backend == .vision ? 1 : 2,
+                "confidence_available": recognition.backend == .vision ? 1 : 0,
                 "rejected_lines": recognition.rejected, "bottom_ms": latestBottomMs,
                 "accurate_rescans": preciseRescans
             ])
@@ -846,6 +859,34 @@ final class DirectGameCapture: NSObject, ObservableObject,
 
     private func recognize(_ buffer: CVPixelBuffer, using snapshot: Snapshot,
                            geometry: GameCaptureGeometry, region: CGRect) -> Recognition {
+        // Experimental ML Kit is deliberately opt-in and Japanese-only.
+        // Automatic or non-Japanese profiles keep Vision's multilingual OCR.
+        // This also preserves Vision as a no-pods fallback for regular builds.
+        if snapshot.ocrEngine == .mlkitJapanese &&
+           snapshot.language.hasPrefix("ja") &&
+           GameMLKitJapaneseOCR.isAvailable {
+            do {
+                if let output = try GameMLKitJapaneseOCR.recognize(
+                    buffer, orientation: geometry.imageOrientation,
+                    normalizedRegion: region, excludedRegion: snapshot.excluded) {
+                    // ML Kit v2 doesn't publish comparable confidence scores.
+                    // 0.65 is ONLY a two-frame stabilization policy sentinel,
+                    // never an asserted ML Kit confidence percentage.
+                    return Recognition(text: output.text,
+                                       confidence: output.text.isEmpty ? 0 : 0.65,
+                                       lineCount: output.candidates,
+                                       raw: output.raw, rejected: output.rejected,
+                                       backend: .mlkitJapanese)
+                }
+            } catch {
+                // Don't silently lose subtitles after a detector exception.
+                // Recover via the existing Vision engine for this frame.
+                DispatchQueue.main.async {
+                    self.lastError = "ML Kit OCR： " + error.localizedDescription
+                    self.failures += 1
+                }
+            }
+        }
         func pass(_ level: VNRequestTextRecognitionLevel) -> Recognition {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = level
@@ -1060,7 +1101,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
         Raw OCR: \(lastOCRRaw)
         Validated OCR: \(lastOCRAccepted)
         Translations: \(translatedCount)
-        OCR: \(ocrElapsedMs)ms, confidence: \(Int(ocrConfidence * 100))%
+        OCR engine: \(activeOCRName)
+        OCR: \(ocrElapsedMs)ms, Vision confidence or ML Kit stability proxy: \(Int(ocrConfidence * 100))% (estimated=\(ocrConfidenceEstimated))
         Capture queue wait: \(queueWaitMs)ms; replaced pending frames: \(discardedCaptureFrames)
         Software-sampled frames: \(sampledOutCaptureFrames)
         Capture-to-translation: \(captureToTranslationMs)ms
