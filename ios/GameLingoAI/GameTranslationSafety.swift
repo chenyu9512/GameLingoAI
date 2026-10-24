@@ -22,7 +22,14 @@ struct GameSourceLanguageTracker {
             current = configured
             return configured
         }
-        guard let detected, !detected.isEmpty, detected != "und" else { return current }
+        guard let detected, !detected.isEmpty, detected != "und" else {
+            // Do not translate a changing HP counter or number-only HUD just
+            // because a previous dialogue established the game language.
+            let containsLetters = text.unicodeScalars.contains {
+                CharacterSet.letters.contains($0)
+            }
+            return containsLetters ? current : nil
+        }
         if current == nil || current == detected {
             current = detected
             proposed = nil
