@@ -27,7 +27,8 @@ final class GameDiagnosticLog {
                            "translation_complete", "diagnostic_export",
                            "startup_vision", "startup_translation", "startup_ready",
                            "first_ocr", "first_translation", "first_stable_ocr",
-                           "first_source_resolved", "pip_startup"])
+                           "first_source_resolved", "pip_startup",
+                           "pip_safety", "pip_sample"])
         guard allowed.contains(name) else { return }
         queue.async {
             if name == "ocr_sample" {
@@ -54,7 +55,10 @@ final class GameDiagnosticLog {
                              "context_source_uses",
                              "language_state", "first_ocr_ms", "first_translation_ms",
                              "first_stable_ocr_ms", "first_source_ms", "source_context",
-                             "pip_start_ms", "pip_result", "accurate_suppressed"]
+                             "pip_start_ms", "pip_result", "accurate_suppressed",
+                             "safety_mode", "pip_render_ms", "pip_render_p50",
+                             "pip_render_p95", "pip_frames", "pip_backpressure",
+                             "pip_safe_mode"]
             let clean = metrics.filter { accepted.contains($0.key) }
                 .mapValues { max(0, min($0, 600_000)) }
             let record = Record(timestamp: ISO8601DateFormatter().string(from: Date()),
