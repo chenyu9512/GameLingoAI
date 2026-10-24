@@ -41,7 +41,7 @@ enum GamePaddleOCR {
             dictionary = [""] + vocabulary.filter { !$0.isEmpty } + [" "]
             env = try ORTEnv(loggingLevel: .warning)
             let options = try ORTSessionOptions()
-            options.intraOpNumThreads = 2
+            try options.setIntraOpNumThreads(2)
             session = try ORTSession(env: env, modelPath: model, sessionOptions: options)
             guard let input = try session.inputNames().first else {
                 throw NSError(domain: "GamePaddleOCR", code: 3)
@@ -80,7 +80,8 @@ enum GamePaddleOCR {
                 NSMutableData(bytes: bytes.baseAddress!, length: bytes.count)
             }
             let input = try ORTValue(tensorData: data, elementType: .float,
-                                     shape: [1, 3, NSNumber(value: height), NSNumber(value: width)])
+                                     shape: [NSNumber(value: 1), NSNumber(value: 3),
+                                             NSNumber(value: height), NSNumber(value: width)])
             let result = try session.run(withInputs: [inputName: input],
                                          outputNames: outputNames, runOptions: nil)
             guard let value = result.values.first else { return ("", 0) }
