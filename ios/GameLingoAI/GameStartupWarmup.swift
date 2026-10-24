@@ -20,11 +20,11 @@ final class GameStartupWarmup: ObservableObject {
     private var completedKey = ""
     private var running: Task<Void, Never>?
 
-    func prepare(language: String, offline: Bool) {
-        // Automatic language choice has no installed TranslationSession.
-        // Japanese is only a *warmup hint*, not a forced game-language choice.
-        let warmupLanguage = GameLanguageSupport.isAutomatic(language) ? "ja" : language
-        let key = "\(warmupLanguage)|\(offline)"
+    func prepare(language: String, targetLanguage: String, offline: Bool) {
+        // In automatic mode no source language is known yet. Do not choose
+        // Japanese or attempt to download/preload an unrelated language pair.
+        let isAutomatic = GameLanguageSupport.isAutomatic(language)
+        let key = "\(language)|\(targetLanguage)|\(offline)"
         guard key != completedKey, key != activeKey else { return }
         running?.cancel()
         activeKey = key
@@ -42,11 +42,17 @@ final class GameStartupWarmup: ObservableObject {
                 "cold_vision_ms": visionMs
             ])
             if !offline {
-                self.finish(key: key, started: started, result: "Vision 已准备（使用自选在线服务）")
+                self.finish(key: key, started: started, result: "Vision 已就绪 · 在线翻译按需连接")
                 return
             }
-            let source = Locale.Language(identifier: warmupLanguage)
-            let target = Locale.Language(identifier: "zh-Hans")
+            if isAutomatic {
+                self.languageReady = false
+                self.finish(key: key, started: started,
+                            result: "Vision 已就绪 · 检测到源语言后检查对应离线资源")
+                return
+            }
+            let source = Locale.Language(identifier: language)
+            let target = Locale.Language(identifier: targetLanguage)
             let state = await LanguageAvailability().status(from: source, to: target)
             guard !Task.isCancelled, self.activeKey == key else { return }
             if state != .installed {
@@ -71,7 +77,7 @@ final class GameStartupWarmup: ObservableObject {
                     "fr": "Bonjour", "de": "Hallo", "es": "Hola",
                     "pt": "Olá", "it": "Ciao", "ru": "Привет"
                 ]
-                _ = try await session.translate(sample[warmupLanguage] ?? "Hello")
+                _ = try await session.translate(sample[language] ?? "Hello")
                 guard !Task.isCancelled, self.activeKey == key else { return }
                 self.translationMilliseconds = max(0, Int(
                     (CFAbsoluteTimeGetCurrent() - translationStarted) * 1000))
@@ -97,7 +103,8 @@ final class GameStartupWarmup: ObservableObject {
     private func finish(key: String, started: CFAbsoluteTime, result: String) {
         // Missing system packs are not a permanent "completed" state.
         // Recheck on foreground after the user downloads a language pack.
-        completedKey = (!key.hasSuffix("|true") || languageReady) ? key : ""
+        completedKey = (!key.hasSuffix("|true") || languageReady
+                        || key.hasPrefix("auto|")) ? key : ""
         activeKey = ""
         isPreparing = false
         status = result
