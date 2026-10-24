@@ -15,6 +15,12 @@ struct SmallOCRSpatialSmoke {
         precondition(result.positions.count == 2)
         precondition(result.positions[1].y == 0.03)
         precondition(result.appended == 1)
+        let twoLocations = GameOCRSpatialMerge.merge(
+            primary: "HP 100", positions: [box("HP 100", 0.85)],
+            secondary: [box("HP 100", 0.04)])
+        precondition(twoLocations.appended == 1)
+        precondition(twoLocations.positions.count == 2)
+        precondition(twoLocations.positions[1].y == 0.04)
         let mismatch = GameOCRSpatialMerge.merge(primary: "Hello\nWorld",
                                                  positions: primary,
                                                  secondary: [box("small", 0.02)])
