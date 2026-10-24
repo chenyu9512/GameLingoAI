@@ -169,6 +169,10 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         if isSceneLayout { renderFrame() }
     }
 
+    func currentVisibleTranslations() -> [String] {
+        Array(recentPairs.suffix(6)).map(\.translated)
+    }
+
     func setSceneTranslatedLines(_ lines: [GamePiPSceneText]) {
         sceneLiveLines = lines
         sceneLiveAt = Date().timeIntervalSince1970
