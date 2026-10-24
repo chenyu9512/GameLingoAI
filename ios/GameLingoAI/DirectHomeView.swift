@@ -328,6 +328,35 @@ struct DirectHomeView: View {
                         .padding(.vertical, 9)
                 }
                 .buttonStyle(.borderedProminent).tint(mint)
+                VStack(alignment: .leading, spacing: 9) {
+                    Text("翻译语言").font(.subheadline.weight(.semibold))
+                    HStack {
+                        Picker("原文", selection: Binding(
+                            get: { store.activeProfile.language },
+                            set: { language in
+                                if store.selectSourceLanguage(language, for: store.activeID) {
+                                    profileDraft.language = language
+                                    updateCaptureConfiguration()
+                                    announce("源语言已应用：\(languageLabel(language))")
+                                }
+                            })) {
+                            ForEach(GameOCRRouting.commonOCRLanguages.indices, id: \.self) { index in
+                                Text(GameOCRRouting.commonOCRLanguages[index].0)
+                                    .tag(GameOCRRouting.commonOCRLanguages[index].1)
+                            }
+                        }
+                        .pickerStyle(.menu).tint(mint)
+                        Image(systemName: "arrow.right").foregroundStyle(.secondary)
+                        Picker("目标", selection: $store.targetLanguage) {
+                            ForEach(GameTranslationLanguages.choices, id: \.code) { item in
+                                Text(item.label).tag(item.code)
+                            }
+                        }
+                        .pickerStyle(.menu).tint(mint)
+                    }
+                    Text("自动识别不会默认为日语；目标语言可随时切换。离线翻译需安装对应语言对。")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
                 Toggle("开始时自动准备悬浮字幕", isOn: $autoOpenPiP)
                     .font(.subheadline).tint(mint)
                 HStack {
@@ -365,7 +394,7 @@ struct DirectHomeView: View {
             statusDashboard
             panel {
                 HStack {
-                    sectionTitle("当前游戏", icon: "gamecontroller")
+                    sectionTitle("当前任务", icon: "gamecontroller")
                     Spacer()
                     Picker("游戏", selection: $store.activeID) {
                         ForEach(store.profiles) { p in Text(p.name).tag(p.id) }
@@ -497,7 +526,7 @@ struct DirectHomeView: View {
                     Text("最近错误：" + capture.lastError)
                         .font(.caption).foregroundStyle(.orange)
                 }
-                Text("当前 OCR 引擎：\(capture.activeOCRName)")
+                Text("识别结果引擎：\(capture.activeOCRName)")
                     .font(.caption).foregroundStyle(mint)
                 Text("OCR 检测到 \(capture.lastOCRCandidates) 行 · 过滤 \(capture.rejectedOCRLines) 行")
                 Text("采集→OCR 开始 \(capture.queueWaitMs)ms · OCR \(capture.ocrElapsedMs)ms · 翻译 \(capture.translationElapsedMs)ms")
