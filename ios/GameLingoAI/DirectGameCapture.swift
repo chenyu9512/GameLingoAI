@@ -587,6 +587,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             lastBottomText.components(separatedBy: "\n").count
         let latestBottomMs = lastBottomDuration
         let preciseRescans = accurateRescanTotal
+        let suppressedRescans = accurateSuppressed
         // Snapshot on the OCR worker before crossing to the main queue.
         // This avoids reading mutable worker state from an escaping closure.
         let paddleDurationMs = lastPaddleMs
@@ -622,7 +623,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
                 "confidence_available": 1,
                 "rejected_lines": recognition.rejected, "bottom_ms": latestBottomMs,
                 "accurate_rescans": preciseRescans,
-                "accurate_suppressed": self.accurateSuppressed
+                "accurate_suppressed": suppressedRescans
             ])
         }
         guard isCurrent(frame.revision) else { return }
