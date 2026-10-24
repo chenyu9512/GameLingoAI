@@ -429,6 +429,8 @@ struct DirectHomeView: View {
                 Text("采集→OCR 开始 \(capture.queueWaitMs)ms · OCR \(capture.ocrElapsedMs)ms · 翻译 \(capture.translationElapsedMs)ms")
                     .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.75))
                 Text("采集→译文完成 \(capture.captureToTranslationMs)ms · 过期帧丢弃 \(capture.discardedCaptureFrames) 次")
+                Text("Accurate OCR 补扫累计 \(capture.accurateRescanCount) 次 · 自动识别源语言：\(languageLabel(capture.detectedSourceLanguage))")
+                    .font(.caption2).foregroundStyle(.white.opacity(0.7))
                     .font(.caption2.monospacedDigit()).foregroundStyle(.white.opacity(0.7))
                     .font(.caption2).foregroundStyle(.white.opacity(0.72))
                 DisclosureGroup(isExpanded: $showOCRDebug) {
