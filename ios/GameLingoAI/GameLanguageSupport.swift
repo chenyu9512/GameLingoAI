@@ -87,9 +87,11 @@ enum GameLanguageSupport {
                 "fr-FR", "de-DE", "es-ES", "ru-RU", "pt-PT",
                 "it-IT", "th-TH", "vi-VN", "ar-SA", "id-ID", "nl-NL"
             ]
-            // Keep live OCR lightweight; the accurate recovery pass can
-            // consider a wider range of writing systems.
-            let maximumLanguages = request.recognitionLevel == .fast ? 5 : 12
+            // Keep live OCR cold-start and memory footprint bounded to the
+            // common Japanese/English/Korean/Chinese set. Less-common game
+            // languages can be chosen explicitly in their game profile.
+            // Accurate recovery is still allowed a broader shortlist.
+            let maximumLanguages = request.recognitionLevel == .fast ? 4 : 10
             var selected: [String] = []
             for hint in preferred {
                 let base = hint.components(separatedBy: "-").first ?? hint
