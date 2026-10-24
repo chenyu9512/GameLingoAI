@@ -1,9 +1,15 @@
 import Foundation
 import Vision
+import NaturalLanguage
 
-/// OCR language hints. Downloading Apple Translation languages does not
-/// download Vision models, and the set supported by the OS can be different.
+/// OCR language handling is independent from installed Translation packs.
+/// "auto" is a profile setting, never a BCP-47 language passed to Apple APIs.
 enum GameLanguageSupport {
+    static let automatic = "auto"
+    static func isAutomatic(_ language: String) -> Bool {
+        language.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == automatic
+    }
+
     private static let supportedLock = NSLock()
     private static var supportedByLevel: [String: [String]] = [:]
 
@@ -20,11 +26,45 @@ enum GameLanguageSupport {
         return trimmed.contains("-") ? trimmed : (presets[prefix] ?? trimmed)
     }
 
-    /// Query Vision on the current OS. If the requested hint is unsupported,
-    /// try the supported regional code of the same language, never Japanese
-    /// as an unrelated fallback.
+    /// Short game UI snippets need conservative language detection. Never guess
+    /// Japanese for Latin status strings or translate a numeric-only HUD.
+    static func detectedSource(in text: String) -> String? {
+        let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard cleaned.unicodeScalars.filter({
+            CharacterSet.letters.contains($0)
+        }).count >= 3 else { return nil }
+
+        if cleaned.unicodeScalars.contains(where: { (0x3041...0x30FF).contains($0.value) }) {
+            return "ja"
+        }
+        if cleaned.unicodeScalars.contains(where: { (0xAC00...0xD7AF).contains($0.value) }) {
+            return "ko"
+        }
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(cleaned)
+        guard let strongest = recognizer.languageHypotheses(withMaximum: 3)
+            .max(by: { $0.value < $1.value }), strongest.value >= 0.48 else {
+            return nil
+        }
+        let detected = strongest.key.rawValue
+        let base = detected.components(separatedBy: "-").first ?? detected
+        let supported: Set<String> = [
+            "ja", "en", "ko", "zh", "fr", "de", "es", "it",
+            "pt", "ru", "th", "vi", "id", "ar", "nl"
+        ]
+        guard supported.contains(base) else { return nil }
+        if base == "zh" { return detected == "zh-Hant" ? "zh-Hant" : "zh-Hans" }
+        return base
+    }
+
+    static func resolvedSource(in text: String, configured: String) -> String? {
+        isAutomatic(configured) ? detectedSource(in: text) : configured
+    }
+
+    /// Auto mode uses Vision's own language-model selection, with a capped
+    /// supported-language shortlist to avoid loading every model on each pass.
+    /// An explicit selection keeps Vision constrained to that language.
     static func setup(_ request: VNRecognizeTextRequest, language: String) throws {
-        let wanted = ocrHint(for: language)
         let key = request.recognitionLevel == .fast ? "fast" : "accurate"
         supportedLock.lock()
         let cached = supportedByLevel[key]
@@ -39,6 +79,30 @@ enum GameLanguageSupport {
             supportedLock.unlock()
             available = detected
         }
+
+        if isAutomatic(language) {
+            request.automaticallyDetectsLanguage = true
+            let preferred = [
+                "ja-JP", "en-US", "ko-KR", "zh-Hans", "zh-Hant",
+                "fr-FR", "de-DE", "es-ES", "ru-RU", "pt-PT"
+            ]
+            var selected: [String] = []
+            for hint in preferred {
+                let base = hint.components(separatedBy: "-").first ?? hint
+                if let match = available.first(where: {
+                    $0 == hint || $0 == base || $0.hasPrefix(base + "-")
+                }), !selected.contains(match) {
+                    selected.append(match)
+                }
+                if selected.count == 8 { break }
+            }
+            // Do not force a hard-coded default when a Vision revision has
+            // different model support; its automatic detection remains on.
+            if !selected.isEmpty { request.recognitionLanguages = selected }
+            return
+        }
+
+        let wanted = ocrHint(for: language)
         let wantedBase = wanted.components(separatedBy: "-").first ?? wanted
         if available.contains(wanted) {
             request.recognitionLanguages = [wanted]
@@ -47,8 +111,6 @@ enum GameLanguageSupport {
         }) {
             request.recognitionLanguages = [alternate]
         } else {
-            // Let Vision emit a clear error rather than silently translating
-            // the wrong language. The user's offline language pack is separate.
             request.recognitionLanguages = [wanted]
         }
     }
