@@ -263,6 +263,13 @@ struct DirectHomeView: View {
                     Text(capture.isCapturing ? "采集中" : "待连接")
                         .font(.caption.bold()).foregroundStyle(capture.isCapturing ? mint : .secondary)
                 }
+                // Keep the playback layer attached and visible before users
+                // request PiP. Moving the preview above the launch action
+                // improves first-frame readiness for system PiP negotiation.
+                FloatingSubtitlePreview(controller: overlay)
+                    .frame(height: 122)
+                    .background(.black)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
                 Button {
                     beginGameTranslation()
                 } label: {
@@ -335,7 +342,9 @@ struct DirectHomeView: View {
 
 
             panel {
-                GameLanguagePackView(preferredSource: store.activeProfile.language)
+                DisclosureGroup("离线语言资源 · 查看安装状态") {
+                    GameLanguagePackView(preferredSource: store.activeProfile.language)
+                }
             }
 
             panel {
@@ -346,10 +355,8 @@ struct DirectHomeView: View {
                         .font(.caption.bold().monospaced())
                         .foregroundStyle(overlay.isActive ? mint : .orange)
                 }
-                FloatingSubtitlePreview(controller: overlay)
-                    .frame(height: 157)
-                    .background(.black)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                Text("画中画预览已移至首页启动区；这里保留字幕控制和调试信息。")
+                    .font(.caption2).foregroundStyle(.secondary)
                 HStack {
                     Text("字号").font(.caption)
                     Slider(value: $store.fontScale, in: 0.8...1.4, step: 0.1).tint(mint)
