@@ -682,6 +682,17 @@ struct DirectHomeView: View {
                         Text(engine.title).tag(engine)
                     }
                 }.pickerStyle(.menu)
+                if profileDraft.language != "ja" ||
+                    profileDraft.selectedOCR != .mlkitJapanese {
+                    Button {
+                        profileDraft.language = "ja"
+                        profileDraft.experimentalOCR = .mlkitJapanese
+                    } label: {
+                        Label("设置为固定日语 + ML Kit（然后保存游戏配置）",
+                              systemImage: "text.viewfinder")
+                    }
+                    .buttonStyle(.bordered).tint(mint)
+                }
                 Text(profileDraft.selectedOCR == .mlkitJapanese
                     ? (profileDraft.language.hasPrefix("ja")
                         ? "实验：日语对白使用 ML Kit；底部补扫及整屏菜单仍用 Apple Vision。离线翻译与 PiP 不变。"
