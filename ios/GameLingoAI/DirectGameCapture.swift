@@ -147,6 +147,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
     private var translationCache: [String: String] = [:]
     private var translationRetry = GameTranslationRetryPolicy()
     private var offlineStatuses: [String: (status: LanguageAvailability.Status, expiresAt: TimeInterval)] = [:]
+    private var offlineStatusInFlight: [String: Task<LanguageAvailability.Status, Never>] = [:]
     private var retries = 0
     private var captureRetries = 0
     private var lastRequestedFilter: SCContentFilter?
@@ -219,6 +220,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         translationCache.removeAll(keepingCapacity: true)
         translationRetry.reset()
         offlineStatuses.removeAll()
+        offlineStatusInFlight.removeAll()
         detectedSourceLanguage = GameLanguageSupport.isAutomatic(profile.language) ? "待检测" : profile.language
         phase = isCapturing ? "已切换游戏设置" : "未启动"
         details = "当前游戏：" + profile.name
@@ -921,9 +923,101 @@ final class DirectGameCapture: NSObject, ObservableObject,
     }
 
     @MainActor
+    private func translationNeedsModel(_ text: String, profile: Snapshot, key: String) -> Bool {
+        if profile.language == "zh-Hans" || profile.glossary[text] != nil
+            || translationCache[key] != nil { return false }
+        if profile.provider != .offline || !text.contains("\n") { return true }
+        let lines = text.split(separator: "\n").map(String.init)
+        return lines.contains { line in
+            let lineKey = profile.provider.rawValue + "|" + profile.name
+                + "|" + profile.language + "|" + line
+            return profile.glossary[line] == nil && translationCache[lineKey] == nil
+        }
+    }
+
+    @MainActor
+    private func offlineAvailability(_ language: String) async -> LanguageAvailability.Status {
+        let now = Date().timeIntervalSince1970
+        if let cached = offlineStatuses[language], cached.expiresAt > now {
+            return cached.status
+        }
+        let task: Task<LanguageAvailability.Status, Never>
+        if let running = offlineStatusInFlight[language] {
+            task = running
+        } else {
+            // Shared across consecutive OCR revisions: canceled subtitles do
+            // not start another independent model-availability lookup.
+            task = Task { @MainActor in
+                await LanguageAvailability().status(
+                    from: Locale.Language(identifier: language),
+                    to: Locale.Language(identifier: "zh-Hans"))
+            }
+            offlineStatusInFlight[language] = task
+        }
+        let status = await task.value
+        offlineStatusInFlight.removeValue(forKey: language)
+        let ttl: TimeInterval = status == .installed ? 90 :
+            (status == .supported ? 10 : 90)
+        offlineStatuses[language] = (status, Date().timeIntervalSince1970 + ttl)
+        GameDiagnosticLog.shared.event("translation_language_status", metrics: [
+            "source_language_id": diagnosticLanguageID(language),
+            "language_status": status == .installed ? 1 :
+                (status == .supported ? 2 : 3)
+        ])
+        return status
+    }
+
+    @MainActor
+    private func diagnosticLanguageID(_ language: String) -> Int {
+        let base = language.components(separatedBy: "-").first ?? language
+        let ids: [String: Int] = ["ja": 1, "en": 2, "ko": 3,
+            "zh": 4, "fr": 5, "de": 6, "es": 7, "it": 8, "pt": 9,
+            "ru": 10, "th": 11, "vi": 12]
+        return ids[base] ?? 0
+    }
+
+    @MainActor
+    private func registerTranslationFailure(
+        _ issue: GameTranslationIssue, profile: Snapshot,
+        started: CFAbsoluteTime, phase failurePhase: String,
+        message: String
+    ) {
+        let key = profile.provider.rawValue + "|" + profile.language
+        let delay = translationRetry.recordFailure(
+            issue, language: key, at: Date().timeIntervalSince1970)
+        failures += 1
+        retries = min(retries + 1, 3)
+        translationElapsedMs = max(0, Int((CFAbsoluteTimeGetCurrent() - started) * 1000))
+        phase = failurePhase
+        details = message + "；" + String(delay) + " 秒后再试"
+        lastError = message
+        GameDiagnosticLog.shared.event("translation_failure", metrics: [
+            "failure_count": failures,
+            "translation_ms": translationElapsedMs,
+            "translation_error_kind": issue.rawValue,
+            "translation_retry_delay_sec": delay,
+            "source_language_id": diagnosticLanguageID(profile.language)
+        ])
+    }
+
+    /// Returning to the app after a system language download clears cached
+    /// availability and retry suppression without touching translation history.
+    @MainActor
+    func refreshOfflineAvailability() {
+        offlineStatuses.removeAll()
+        translationRetry.reset()
+    }
+
+    @MainActor
     private func submit(_ text: String, profile: Snapshot, detectedAt: TimeInterval) {
         let now = Date().timeIntervalSince1970
         if text == lastCompleted { return }
+        let policyKey = profile.provider.rawValue + "|" + profile.language
+        let modelKey = profile.provider.rawValue + "|" + profile.name + "|" + profile.language + "|" + text
+        if translationNeedsModel(text, profile: profile, key: modelKey) &&
+           !translationRetry.canAttempt(policyKey, at: now) {
+            return
+        }
         if text == latestSubmitted && now - latestSubmittedAt < Double(2 + retries * 2) {
             return
         }
