@@ -10,6 +10,37 @@ enum GameOCRSpatialMerge {
         let appended: Int
     }
 
+    /// A second defense after disabling video mirroring: suppress OCR lines
+    /// that exactly reproduce the text currently rendered inside our own
+    /// PiP. Do not remove partial matches or guess a window rectangle.
+    static func excludingOwnPiPText(_ text: String, positions: [GamePiPSceneText],
+                                    visibleTranslations: [String]) -> Result {
+        let source = text.isEmpty ? [] : text.components(separatedBy: "\n")
+        let owned = Set((visibleTranslations + ["实时译文 · 防递归安全显示"])
+            .map(normalized).filter { $0.count >= 3 })
+        let positionAligned = source.count == positions.count
+        var retained: [String] = []
+        var locations: [GamePiPSceneText] = []
+        var dropped = 0
+        for (index, line) in source.enumerated() {
+            if owned.contains(normalized(line)) {
+                dropped += 1
+                continue
+            }
+            retained.append(line)
+            if positionAligned { locations.append(positions[index]) }
+        }
+        return Result(text: retained.joined(separator: "\n"),
+                      positions: positionAligned ? locations : [],
+                      appended: dropped)
+    }
+
+    private static func normalized(_ text: String) -> String {
+        String(text.precomposedStringWithCanonicalMapping.unicodeScalars.filter {
+            CharacterSet.letters.contains($0) || CharacterSet.decimalDigits.contains($0)
+        }).lowercased()
+    }
+
     static func merge(primary: String, positions: [GamePiPSceneText],
                       secondary: [GamePiPSceneText]) -> Result {
         let source = primary.isEmpty ? [] : primary.components(separatedBy: "\n")
