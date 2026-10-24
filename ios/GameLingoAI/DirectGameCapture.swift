@@ -910,6 +910,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             }
             guard revision == translationRevision && !Task.isCancelled else { return }
             guard !result.isEmpty else {
+                GameDiagnosticLog.shared.event("translation_failure", metrics: ["failure_count": failures + 1])
                 phase = "空译文"
                 details = "系统没有返回翻译内容"
                 failures += 1
@@ -924,6 +925,10 @@ final class DirectGameCapture: NSObject, ObservableObject,
             latest = result
             translatedCount += 1
             translationElapsedMs = Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
+            GameDiagnosticLog.shared.event("translation_complete", metrics: [
+                "translation_ms": translationElapsedMs,
+                "capture_to_translation_ms": Int((Date().timeIntervalSince1970 - detectedAt) * 1000)
+            ])
             phase = "双语字幕已更新"
             details = "识别 \(ocrElapsedMs)ms · 翻译 \(translationElapsedMs)ms"
             let entry = GameSubtitleLine(original: text, translated: result,
@@ -935,6 +940,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         } catch {
             guard revision == translationRevision && !Task.isCancelled else { return }
             retries = min(retries + 1, 3)
+            GameDiagnosticLog.shared.event("translation_failure", metrics: ["failure_count": failures + 1])
             phase = profile.provider == .offline ? "本机翻译失败" : "在线翻译失败"
             details = error.localizedDescription
             lastError = error.localizedDescription
