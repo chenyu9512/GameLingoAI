@@ -244,6 +244,15 @@ final class GameLingoStore: ObservableObject {
     }
 
     @discardableResult
+    func selectSourceLanguage(_ language: String, for id: UUID) -> Bool {
+        let value = language.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty,
+              let index = profiles.firstIndex(where: { $0.id == id }) else { return false }
+        profiles[index].language = value
+        return profiles[index].language == value
+    }
+
+    @discardableResult
     func selectOCREngine(_ engine: GameOCREngine, for id: UUID) -> Bool {
         guard engine == .vision || engine == .paddleHybrid,
               let index = profiles.firstIndex(where: { $0.id == id }) else { return false }
