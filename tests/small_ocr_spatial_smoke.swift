@@ -24,6 +24,18 @@ struct SmallOCRSpatialSmoke {
                                                  secondary: [box("Tiny", 0.05)])
         precondition(onlySmall.positions.count == 1)
         precondition(onlySmall.text == "Tiny")
+        let echo = GameOCRSpatialMerge.excludingOwnPiPText(
+            "勇者进入村庄\n欢迎回来！\n实时译文 · 防递归安全显示",
+            positions: [box("勇者进入村庄", 0.6), box("欢迎回来！", 0.3),
+                        box("实时译文", 0.8)],
+            visibleTranslations: ["欢迎回来！"])
+        precondition(echo.text == "勇者进入村庄")
+        precondition(echo.positions.count == 1)
+        precondition(echo.appended == 2)
+        let unrelated = GameOCRSpatialMerge.excludingOwnPiPText(
+            "菜单\n生命值", positions: [box("菜单", 0.5), box("生命值", 0.4)],
+            visibleTranslations: ["欢迎回来！"])
+        precondition(unrelated.positions.count == 2)
         print("PASS: small OCR text keeps positions and mismatches fail closed")
     }
 }
