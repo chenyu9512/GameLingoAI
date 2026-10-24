@@ -84,11 +84,12 @@ enum GameLanguageSupport {
             request.automaticallyDetectsLanguage = true
             let preferred = [
                 "ja-JP", "en-US", "ko-KR", "zh-Hans", "zh-Hant",
-                "fr-FR", "de-DE", "es-ES", "ru-RU", "pt-PT"
+                "fr-FR", "de-DE", "es-ES", "ru-RU", "pt-PT",
+                "it-IT", "th-TH", "vi-VN", "ar-SA", "id-ID", "nl-NL"
             ]
             // Keep live OCR lightweight; the accurate recovery pass can
             // consider a wider range of writing systems.
-            let maximumLanguages = request.recognitionLevel == .fast ? 5 : 8
+            let maximumLanguages = request.recognitionLevel == .fast ? 5 : 12
             var selected: [String] = []
             for hint in preferred {
                 let base = hint.components(separatedBy: "-").first ?? hint
