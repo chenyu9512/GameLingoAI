@@ -82,7 +82,7 @@ checks = {
     "cleaner consumer UI and settings navigation":
         "private var statusDashboard:" in home
         and "ConfigSection.allCases" in home
-        and "DIRECT 3.5" in home,
+        and "CFBundleShortVersionString" in home,
     "off-main CoreText PiP worker built in direct target":
         "GamePiPFrameRenderer.swift" in generator
         and "GamePiPFrameRenderer.swift" in project
