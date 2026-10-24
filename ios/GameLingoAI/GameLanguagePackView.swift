@@ -6,8 +6,9 @@ import Translation
 @available(iOS 27.0, *)
 @MainActor
 struct GameLanguagePackView: View {
-    var preferredSource = "ja"
-    @State private var source = "ja"
+    var preferredSource = "auto"
+    var preferredTarget = "en"
+    @State private var source = ""
     @State private var manualLanguage = ""
     @State private var isAdvanced = false
     @State private var isChecking = false
@@ -17,7 +18,9 @@ struct GameLanguagePackView: View {
     @State private var taskConfiguration: TranslationSession.Configuration?
     @Environment(\.scenePhase) private var scenePhase
 
-    private let target = Locale.Language(identifier: "zh-Hans")
+    private var target: Locale.Language {
+        Locale.Language(identifier: preferredTarget)
+    }
     private let options: [(String, String)] = [
         ("日语", "ja"), ("英语", "en"), ("韩语", "ko"),
         ("繁体中文", "zh-Hant"), ("法语", "fr"), ("德语", "de"),
@@ -40,9 +43,10 @@ struct GameLanguagePackView: View {
                 Spacer()
                 stateLabel
             }
-            Text("选择原文语言，目标固定为简体中文。语言包由 iOS 安装在本机。")
+            Text("选择需要安装的源语言 → \(GameTranslationLanguages.label(for: preferredTarget))。语言包由 iOS 管理。")
                 .font(.subheadline).foregroundStyle(.secondary)
             Picker("源语言", selection: $source) {
+                Text("请选择源语言").tag("")
                 ForEach(options.indices, id: \.self) { index in
                     Text(options[index].0).tag(options[index].1)
                 }
@@ -97,9 +101,12 @@ struct GameLanguagePackView: View {
                 .font(.caption2).foregroundStyle(.secondary)
         }
         .onAppear {
-            if options.contains(where: { $0.1 == preferredSource }) {
-                source = preferredSource
-            }
+            source = options.contains(where: { $0.1 == preferredSource })
+                ? preferredSource : ""
+            Task { await refreshStatus() }
+        }
+        .onChange(of: preferredTarget) { _, _ in
+            availability = nil
             Task { await refreshStatus() }
         }
         .onChange(of: source) { _, _ in
@@ -145,6 +152,7 @@ struct GameLanguagePackView: View {
             .foregroundStyle(installed ? .green : .secondary)
     }
     private var statusTitle: String {
+        if effectiveSource.isEmpty { return "请选择需要安装的源语言" }
         if isRequesting { return "等待 iOS 下载或安装" }
         if isChecking { return "正在检查可用性" }
         if installed { return "已安装，可以本机翻译" }
@@ -172,7 +180,8 @@ struct GameLanguagePackView: View {
         availability = result
     }
     private func requestDownload() {
-        guard !isRequesting && !isChecking && !unsupported && !installed else { return }
+        guard !isRequesting && !isChecking && !unsupported && !installed
+            && !effectiveSource.isEmpty else { return }
         let language = Locale.Language(identifier: effectiveSource)
         if taskConfiguration == nil {
             taskConfiguration = TranslationSession.Configuration(source: language, target: target)
