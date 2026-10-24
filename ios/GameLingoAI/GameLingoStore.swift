@@ -229,6 +229,17 @@ final class GameLingoStore: ObservableObject {
             }
             UserDefaults.standard.set(true, forKey: readingMigrationKey)
         }
+        // One-time display upgrade: bring previous default bilingual users
+        // into the new portrait scene. Custom legacy layouts remain selectable.
+        let portraitMigrationKey = "direct.portraitScene.migrated.3_8_1"
+        if !UserDefaults.standard.bool(forKey: portraitMigrationKey) {
+            if pipLayout == .fullBilingual || pipLayout == .standard {
+                pipLayout = .portraitScene
+                autoplay = false
+                shouldPersistReadingMigration = true
+            }
+            UserDefaults.standard.set(true, forKey: portraitMigrationKey)
+        }
         if !profiles.contains(where: { $0.id == activeID }), let first = profiles.first {
             activeID = first.id
         }
