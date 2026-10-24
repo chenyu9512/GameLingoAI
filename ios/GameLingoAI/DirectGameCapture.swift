@@ -148,7 +148,6 @@ final class DirectGameCapture: NSObject, ObservableObject,
     private var latestSubmittedAt: TimeInterval = 0
     private var lastCompleted = ""
     private var translationCache: [String: String] = [:]
-    private var retries = 0
     private var translationBackoff = GameTranslationBackoff()
     private var captureRetries = 0
     private var lastRequestedFilter: SCContentFilter?
@@ -219,7 +218,6 @@ final class DirectGameCapture: NSObject, ObservableObject,
         latestSubmitted = ""
         lastCompleted = ""
         translationCache.removeAll(keepingCapacity: true)
-        retries = 0
         translationBackoff.reset()
         detectedSourceLanguage = GameLanguageSupport.isAutomatic(profile.language) ? "待检测" : profile.language
         phase = isCapturing ? "已切换游戏设置" : "未启动"
@@ -253,7 +251,6 @@ final class DirectGameCapture: NSObject, ObservableObject,
         pendingTranslation?.cancel()
         translationRevision += 1
         pendingTranslation = nil
-        retries = 0
         translationBackoff.reset()
         isCapturing = false
         GameDiagnosticLog.shared.event("capture_stop")
@@ -296,7 +293,6 @@ final class DirectGameCapture: NSObject, ObservableObject,
         gate.unlock()
         let generation = captureGeneration
         translationBackoff.reset()
-        retries = 0
         let old = stream
         old?.stopCapture { _ in }
         stream = nil
@@ -985,7 +981,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             ])
             return
         }
-        if text == latestSubmitted && now - latestSubmittedAt < Double(2 + retries * 2) {
+        if text == latestSubmitted && now - latestSubmittedAt < 0.8 {
             GameDiagnosticLog.shared.event("pipeline_skip", metrics: ["reason_code": 6])
             return
         }
@@ -1076,12 +1072,10 @@ final class DirectGameCapture: NSObject, ObservableObject,
                 phase = "空译文"
                 details = "系统没有返回翻译内容；\(cooldown / 1000) 秒后自动重试"
                 failures += 1
-                retries = min(retries + 1, 3)
                 return
             }
             translationCache[key] = result
             if translationCache.count > 160 { translationCache.removeAll(keepingCapacity: true) }
-            retries = 0
             translationBackoff.reset()
             lastCompleted = text
             original = text
@@ -1102,7 +1096,6 @@ final class DirectGameCapture: NSObject, ObservableObject,
             GameLingoStore.shared.add(entry)
         } catch {
             guard revision == translationRevision && !Task.isCancelled else { return }
-            retries = min(retries + 1, 3)
             let cooldown = translationBackoff.failed(at: Date().timeIntervalSince1970)
             let nsError = error as NSError
             let domainCode: Int
