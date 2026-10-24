@@ -105,6 +105,14 @@ checks = {
     "new OCR policy tests run in Codemagic":
         "ocr_session_policy_smoke.swift" in workflow
         and "OCRSessionPolicySmoke" in session_policy_test,
+    "start-to-first-text stages are recorded separately and without text":
+        '"first_stable_ocr"' in diagnostics
+        and '"first_source_resolved"' in diagnostics
+        and '"first_stable_ocr_ms"' in diagnostics
+        and '"first_source_ms"' in diagnostics
+        and 'firstStableOCRLogged' in capture
+        and 'firstSourceLogged' in capture
+        and 'workerCaptureStartedAt' in capture,
     "startup and PiP diagnostics contain no captured text":
         '"startup_vision"' in diagnostics
         and '"first_translation"' in diagnostics
