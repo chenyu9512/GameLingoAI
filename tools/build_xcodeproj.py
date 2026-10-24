@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE_ID = (ROOT / '.app_bundle_id').read_text().strip() if (ROOT / '.app_bundle_id').exists() else 'com.example.GameLingoAI'
 DIRECT = os.environ.get('GAMELINGO_DIRECT_CAPTURE') == '1'
-MLKIT = DIRECT and os.environ.get('GAMELINGO_EXPERIMENTAL_MLKIT') == '1'
+PADDLE = DIRECT and os.environ.get('GAMELINGO_ENABLE_PADDLE') == '1'
 if DIRECT:
     BUNDLE_ID += '.direct'
 DEST = ROOT / 'GameLingoAI.xcodeproj'
@@ -40,7 +40,7 @@ def obj(key, isa, **props):
     objects[key]=dict(isa=isa,**props)
     return Raw(i)
 
-src_app=(['ios/GameLingoAI/GameLingoAIApp.swift','ios/GameLingoAI/GameLingoStore.swift','ios/GameLingoAI/GameOnlineTranslation.swift','ios/GameLingoAI/GameTranslationBackoff.swift','ios/GameLingoAI/GameGlossaryTXTParser.swift','ios/GameLingoAI/GameGlossaryLibrary.swift','ios/GameLingoAI/GameGlossaryLibraryView.swift','ios/GameLingoAI/GameLanguageSupport.swift','ios/GameLingoAI/GameOCRQuality.swift','ios/GameLingoAI/GameMLKitJapaneseOCR.swift','ios/GameLingoAI/GameDiagnosticLog.swift','ios/GameLingoAI/GameRPGDictionary.swift','ios/GameLingoAI/GameRPGDictionaryView.swift','ios/GameLingoAI/GameTranslationSettingsView.swift','ios/GameLingoAI/GameCaptureGeometry.swift','ios/GameLingoAI/GameMenuCatalog.swift','ios/GameLingoAI/DirectHomeView.swift','ios/GameLingoAI/FloatingSubtitleController.swift','ios/GameLingoAI/GamePiPFrameRenderer.swift','ios/GameLingoAI/DirectGameCapture.swift'] if DIRECT else ['ios/GameLingoAI/GameLingoAIApp.swift','ios/GameLingoAI/ContentView.swift','ios/GameLingoAI/SubtitleInbox.swift','ios/GameLingoAI/FloatingSubtitleController.swift'])
+src_app=(['ios/GameLingoAI/GameLingoAIApp.swift','ios/GameLingoAI/GameLingoStore.swift','ios/GameLingoAI/GameOnlineTranslation.swift','ios/GameLingoAI/GameTranslationBackoff.swift','ios/GameLingoAI/GameGlossaryTXTParser.swift','ios/GameLingoAI/GameGlossaryLibrary.swift','ios/GameLingoAI/GameGlossaryLibraryView.swift','ios/GameLingoAI/GameLanguageSupport.swift','ios/GameLingoAI/GameOCRQuality.swift','ios/GameLingoAI/GamePaddleOCR.swift','ios/GameLingoAI/GameOCRRouting.swift','ios/GameLingoAI/GameLanguagePackView.swift','ios/GameLingoAI/GameDiagnosticLog.swift','ios/GameLingoAI/GameRPGDictionary.swift','ios/GameLingoAI/GameRPGDictionaryView.swift','ios/GameLingoAI/GameTranslationSettingsView.swift','ios/GameLingoAI/GameCaptureGeometry.swift','ios/GameLingoAI/GameMenuCatalog.swift','ios/GameLingoAI/DirectHomeView.swift','ios/GameLingoAI/FloatingSubtitleController.swift','ios/GameLingoAI/GamePiPFrameRenderer.swift','ios/GameLingoAI/DirectGameCapture.swift'] if DIRECT else ['ios/GameLingoAI/GameLingoAIApp.swift','ios/GameLingoAI/ContentView.swift','ios/GameLingoAI/SubtitleInbox.swift','ios/GameLingoAI/FloatingSubtitleController.swift'])
 src_ext=['ios/BroadcastUpload/SampleHandler.swift']
 src_shared=['ios/Shared/SubtitleMessage.swift','ios/Shared/BuildIdentity.swift']
 plists=['ios/GameLingoAI/Info.plist','ios/BroadcastUpload/Info.plist','ios/GameLingoAI/InfoDirect.plist']
@@ -52,6 +52,11 @@ for p in files:
     typ='sourcecode.swift' if p.endswith('.swift') else ('text.plist.entitlements' if p.endswith('.entitlements') else 'text.plist.xml')
     refs[p]=obj('fileref:'+p,'PBXFileReference',lastKnownFileType=typ,path=Path(p).name,sourceTree='<group>')
 
+if PADDLE:
+    paddle_assets='ios/GameLingoAI/PaddleModels'
+    refs[paddle_assets]=obj('fileref:'+paddle_assets,'PBXFileReference',
+                            lastKnownFileType='folder',path='PaddleModels',sourceTree='<group>')
+
 refs[assets]=obj('fileref:'+assets,'PBXFileReference',lastKnownFileType='folder.assetcatalog',path='Assets.xcassets',sourceTree='<group>')
 
 app_product=obj('prod:app','PBXFileReference',explicitFileType='wrapper.application',includeInIndex=0,path='GameLingoAI.app',sourceTree='BUILT_PRODUCTS_DIR')
@@ -61,7 +66,7 @@ app_src=[obj('build:'+p+':app','PBXBuildFile',fileRef=refs[p]) for p in src_app+
 ext_src=[obj('build:'+p+':ext','PBXBuildFile',fileRef=refs[p]) for p in src_ext+src_shared]
 ext_embed=obj('build:extension:embed','PBXBuildFile',fileRef=ext_product,settings={'ATTRIBUTES':['RemoveHeadersOnCopy']})
 
-app_group=obj('group:app','PBXGroup',children=[refs[p] for p in src_app+plists[:1]+plists[2:]+ents[:1]]+[refs[assets]],path='GameLingoAI',sourceTree='<group>')
+app_group=obj('group:app','PBXGroup',children=[refs[p] for p in src_app+plists[:1]+plists[2:]+ents[:1]]+[refs[assets]]+([refs[paddle_assets]] if PADDLE else []),path='GameLingoAI',sourceTree='<group>')
 ext_group=obj('group:extension','PBXGroup',children=[refs[p] for p in src_ext+plists[1:2]+ents[1:]],path='BroadcastUpload',sourceTree='<group>')
 shared_group=obj('group:shared','PBXGroup',children=[refs[p] for p in src_shared],path='Shared',sourceTree='<group>')
 ios_group=obj('group:ios','PBXGroup',children=[app_group,ext_group,shared_group],path='ios',sourceTree='<group>')
@@ -73,7 +78,7 @@ sources_ext=obj('phase:sources:ext','PBXSourcesBuildPhase',buildActionMask=21474
 frameworks_app=obj('phase:frameworks:app','PBXFrameworksBuildPhase',buildActionMask=2147483647,files=[],runOnlyForDeploymentPostprocessing=0)
 frameworks_ext=obj('phase:frameworks:ext','PBXFrameworksBuildPhase',buildActionMask=2147483647,files=[],runOnlyForDeploymentPostprocessing=0)
 app_assets=obj('build:app:assets','PBXBuildFile',fileRef=refs[assets])
-resources_app=obj('phase:resources:app','PBXResourcesBuildPhase',buildActionMask=2147483647,files=[app_assets],runOnlyForDeploymentPostprocessing=0)
+resources_app=obj('phase:resources:app','PBXResourcesBuildPhase',buildActionMask=2147483647,files=[app_assets]+([obj('build:app:paddle-models','PBXBuildFile',fileRef=refs[paddle_assets])] if PADDLE else []),runOnlyForDeploymentPostprocessing=0)
 resources_ext=obj('phase:resources:ext','PBXResourcesBuildPhase',buildActionMask=2147483647,files=[],runOnlyForDeploymentPostprocessing=0)
 embed_phase=obj('phase:embed','PBXCopyFilesBuildPhase',buildActionMask=2147483647,dstPath='',dstSubfolderSpec=13,files=[ext_embed],name='Embed App Extensions',runOnlyForDeploymentPostprocessing=0)
 
@@ -86,15 +91,17 @@ common={
  'GENERATE_INFOPLIST_FILE':'NO', 'SWIFT_EMIT_LOC_STRINGS':'YES',
  'ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS':'NO',
 }
-if MLKIT:
-    common.update({'MARKETING_VERSION':'3.6.0', 'CURRENT_PROJECT_VERSION':'14'})
+if PADDLE:
+    common.update({'MARKETING_VERSION':'3.7.0', 'CURRENT_PROJECT_VERSION':'15'})
 
 app_build={**common, 'PRODUCT_BUNDLE_IDENTIFIER':BUNDLE_ID,
  'INFOPLIST_FILE':'ios/GameLingoAI/InfoDirect.plist' if DIRECT else 'ios/GameLingoAI/Info.plist',
  'CODE_SIGN_ENTITLEMENTS':'' if DIRECT else 'ios/GameLingoAI/GameLingoAI.entitlements',
- 'SWIFT_ACTIVE_COMPILATION_CONDITIONS':('DIRECT_CAPTURE MLKIT_OCR' if MLKIT else 'DIRECT_CAPTURE') if DIRECT else '',
+ 'SWIFT_ACTIVE_COMPILATION_CONDITIONS':('DIRECT_CAPTURE PADDLE_OCR' if PADDLE else 'DIRECT_CAPTURE') if DIRECT else '',
  'PRODUCT_NAME':'GameLingoAI',
  'ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon'}
+if PADDLE:
+    app_build['SWIFT_OBJC_BRIDGING_HEADER']='ios/GameLingoAI/PaddleORTBridge.h'
 ext_build={**common, 'PRODUCT_BUNDLE_IDENTIFIER':BUNDLE_ID+'.BroadcastUpload',
  'INFOPLIST_FILE':'ios/BroadcastUpload/Info.plist',
  'CODE_SIGN_ENTITLEMENTS':'ios/BroadcastUpload/BroadcastUpload.entitlements',
@@ -134,4 +141,4 @@ for key,item in sorted(objects.items(),key=lambda kv:(kv[1]['isa'],kv[0])):
     lines.append(f'\t\t{oid(key)} /* {key} */ = {Q(item)};')
 lines+=['\t};',f'\trootObject = {oid("project:root")} /* Project object */;','}']
 (DEST/'project.pbxproj').write_text('\n'.join(lines)+'\n')
-print('Generated',DEST/'project.pbxproj', 'mode:', 'direct-mlkit-iOS27' if MLKIT else ('direct-iOS27' if DIRECT else 'replaykit'))
+print('Generated',DEST/'project.pbxproj', 'mode:', 'direct-paddle-iOS27' if PADDLE else ('direct-iOS27' if DIRECT else 'replaykit'))
