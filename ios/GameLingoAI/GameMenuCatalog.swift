@@ -112,6 +112,11 @@ final class GameMenuCatalog: ObservableObject {
             status = "这次全屏扫描没有检测到文字；保留上次菜单"
             return
         }
+        // This entrypoint is also used by screenshot OCR. Resolve auto here,
+        // never pass the literal "auto" to installedSource or an online API.
+        let language = GameLanguageSupport.resolvedSource(
+            in: recognized.map(\.original).joined(separator: "\n"),
+            configured: language) ?? "und"
         // Ignore sparse automatic scans of normal combat/dialogue scenes.
         // Explicit manual scans always keep every detected line.
         if recognized.count < 2 && !explicitlyRequested {
