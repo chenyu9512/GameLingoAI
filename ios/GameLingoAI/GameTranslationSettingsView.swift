@@ -161,7 +161,8 @@ struct GameTranslationSettingsView: View {
         }
         draft.dailyCharacterLimit = max(0, Int(dailyLimit) ?? 50000)
         saveMessage = "正在验证翻译接口…"
-        let passed = await tester.test(provider: choice, endpoint: draft)
+        let passed = await tester.test(provider: choice, endpoint: draft,
+                                      target: store.targetLanguage)
         guard passed else {
             saveMessage = "连接测试未通过，原有翻译引擎保持不变"
             return
