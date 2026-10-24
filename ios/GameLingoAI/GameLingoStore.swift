@@ -208,11 +208,13 @@ final class GameLingoStore: ObservableObject {
         subtitleMode = stored?.subtitleMode ?? .bilingual
         // One-time 3.7.1 migration: replace the old scrolling default with
         // static full-window paired reading. Preserve other custom layouts.
+        var shouldPersistReadingMigration = false
         let readingMigrationKey = "direct.fullPage.migrated.3_7_1"
         if !UserDefaults.standard.bool(forKey: readingMigrationKey) {
             if pipLayout == .standard {
                 pipLayout = .fullBilingual
                 autoplay = false
+                shouldPersistReadingMigration = true
             }
             UserDefaults.standard.set(true, forKey: readingMigrationKey)
         }
@@ -226,7 +228,7 @@ final class GameLingoStore: ObservableObject {
         }
         // Persist the migrated default immediately. Otherwise the one-time
         // migration marker would be set but an old saved "ja" reappears next run.
-        if shouldPersistAutoMigration { persist() }
+        if shouldPersistAutoMigration || shouldPersistReadingMigration { persist() }
     }
 
     var activeProfile: GameProfile {
