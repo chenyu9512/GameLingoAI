@@ -23,7 +23,8 @@ final class GameDiagnosticLog {
         // Deliberately strict schema: caller-provided text never reaches disk.
         let allowed = Set(["capture_start", "capture_stop", "capture_failure",
                            "capture_interrupted", "ocr_sample", "translation_failure",
-                           "translation_complete", "diagnostic_export"])
+                           "translation_complete", "translation_language_status",
+                           "diagnostic_export"])
         guard allowed.contains(name) else { return }
         queue.async {
             if name == "ocr_sample" {
@@ -34,7 +35,9 @@ final class GameDiagnosticLog {
             let accepted = ["ocr_ms", "queue_ms", "dropped", "confidence_pct",
                             "rejected_lines", "bottom_ms", "translation_ms",
                             "capture_to_translation_ms", "failure_count", "accurate_rescans",
-                            "sampled_out"]
+                            "sampled_out", "translation_error_kind",
+                            "translation_retry_delay_sec", "source_language_id",
+                            "language_status"]
             let clean = metrics.filter { accepted.contains($0.key) }
                 .mapValues { max(0, min($0, 600_000)) }
             let record = Record(timestamp: ISO8601DateFormatter().string(from: Date()),
