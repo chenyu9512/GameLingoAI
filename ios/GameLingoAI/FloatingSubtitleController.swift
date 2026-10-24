@@ -13,6 +13,8 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
                                        AVPictureInPictureControllerDelegate,
                                        AVPictureInPictureSampleBufferPlaybackDelegate {
     @Published private(set) var isActive = false
+    @Published private(set) var isPreparing = false
+    @Published private(set) var launchFailed = false
     @Published private(set) var status = "悬浮字幕未启动"
     @Published private(set) var outputFrameCount = 0
     @Published private(set) var playbackPage = "1 / 1"
@@ -30,6 +32,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     private var playbackInterval: TimeInterval = 5.0
     private var autoplay = true
     private var readAloud = false
+    private var speechLanguage = "en"
     private let speaker = AVSpeechSynthesizer()
     private struct SubtitlePage {
         let original: String
@@ -181,6 +184,16 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         }
     }
 
+    func setSpeechLanguage(_ language: String) {
+        speechLanguage = GameTranslationLanguages.apiCode(language)
+    }
+
+    func primePreview() {
+        // Called once the SwiftUI inline preview has been attached. A
+        // primed sample-buffer makes the first PiP request less fragile.
+        renderFrame()
+    }
+
     func configurePlayback(autoplay: Bool, seconds: Double, readAloud: Bool) {
         let next = min(10.0, max(2.0, seconds))
         guard self.autoplay != autoplay || playbackInterval != next ||
@@ -221,7 +234,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         guard !message.isEmpty else { return }
         speaker.stopSpeaking(at: .immediate)
         let utterance = AVSpeechUtterance(string: message)
-        utterance.voice = AVSpeechSynthesisVoice(language: "zh-CN")
+        utterance.voice = AVSpeechSynthesisVoice(language: speechLanguage)
         utterance.rate = 0.48
         speaker.speak(utterance)
     }
@@ -294,6 +307,8 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
 
     func start() {
         guard let pip = pictureInPicture else {
+            isPreparing = false
+            launchFailed = true
             status = "系统画中画不可用"
             return
         }
@@ -304,18 +319,24 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
                                                             options: [.mixWithOthers])
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
+            isPreparing = false
+            launchFailed = true
             status = "画中画音频会话初始化失败：\(error.localizedDescription)"
             return
         }
 
         if previewLayer.status == .failed { previewLayer.flushAndRemoveImage() }
         if pip.isPictureInPictureActive {
+            isPreparing = false
+            launchFailed = false
             status = "悬浮字幕正在显示"
             return
         }
         // Rendering now runs off-main. Wait for its first enqueued sample
         // before checking isPictureInPicturePossible; the old synchronous
         // primer is no longer valid.
+        isPreparing = true
+        launchFailed = false
         startAfterFirstFrame = true
         pendingStartChecks = 0
         pipStartRequestedAt = CACurrentMediaTime()
@@ -324,6 +345,8 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     }
 
     func stop() {
+        isPreparing = false
+        launchFailed = false
         startAfterFirstFrame = false
         pendingStartChecks = 0
         previewLayer.sampleBufferRenderer.stopRequestingMediaData()
@@ -459,7 +482,9 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         pendingStartChecks += 1
         guard pendingStartChecks <= 12 else {
             startAfterFirstFrame = false
-            status = "PiP 首帧已就绪但系统暂不允许开启，请保持预览可见后重试"
+            isPreparing = false
+            launchFailed = true
+            status = "PiP 首帧就绪，但系统不允许开启；请重试或跳过悬浮窗"
             #if DIRECT_CAPTURE
             GameDiagnosticLog.shared.event("pip_startup", metrics: [
                 "pip_result": 2,
@@ -480,6 +505,8 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
 
     func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         isActive = true
+        isPreparing = false
+        launchFailed = false
         status = "同屏字幕运行中：现在可以切换回游戏"
         #if DIRECT_CAPTURE
         GameDiagnosticLog.shared.event("pip_startup", metrics: [
@@ -496,6 +523,8 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
                                     failedToStartPictureInPictureWithError error: Error) {
         startAfterFirstFrame = false
         isActive = false
+        isPreparing = false
+        launchFailed = true
         status = "画中画启动失败：\(error.localizedDescription)"
         #if DIRECT_CAPTURE
         GameDiagnosticLog.shared.event("pip_startup", metrics: [
@@ -508,6 +537,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         startAfterFirstFrame = false
         isActive = false
+        isPreparing = false
         status = "悬浮窗已关闭，翻译请返回 App 查看"
         frameTimer?.invalidate()
         frameTimer = nil
