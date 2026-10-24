@@ -34,6 +34,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
     @Published private(set) var ocrElapsedMs = 0
     @Published private(set) var queueWaitMs = 0
     @Published private(set) var discardedCaptureFrames = 0
+    @Published private(set) var sampledOutCaptureFrames = 0
     @Published private(set) var captureToTranslationMs = 0
     @Published private(set) var translationElapsedMs = 0
     @Published private(set) var lastFrameAt: Date?
@@ -427,6 +428,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             (Date().timeIntervalSince1970 - now) * 1000))
         gate.lock()
         let skipped = droppedFrames
+        let sampledOut = sampledOutFrames
         gate.unlock()
         guard isCurrent(frame.revision) else { return }
         gate.lock()
@@ -570,10 +572,12 @@ final class DirectGameCapture: NSObject, ObservableObject,
             self.accurateRescanCount = preciseRescans
             self.queueWaitMs = dispatchWait
             self.discardedCaptureFrames = skipped
+            self.sampledOutCaptureFrames = sampledOut
             self.ocrConfidence = recognition.confidence
             GameDiagnosticLog.shared.event("ocr_sample", metrics: [
                 "ocr_ms": elapsedMs, "queue_ms": dispatchWait,
-                "dropped": skipped, "confidence_pct": Int(recognition.confidence * 100),
+                "dropped": skipped, "sampled_out": sampledOut,
+                "confidence_pct": Int(recognition.confidence * 100),
                 "rejected_lines": recognition.rejected, "bottom_ms": latestBottomMs,
                 "accurate_rescans": preciseRescans
             ])
@@ -1057,7 +1061,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
         Validated OCR: \(lastOCRAccepted)
         Translations: \(translatedCount)
         OCR: \(ocrElapsedMs)ms, confidence: \(Int(ocrConfidence * 100))%
-        Capture queue wait: \(queueWaitMs)ms; dropped frames: \(discardedCaptureFrames)
+        Capture queue wait: \(queueWaitMs)ms; replaced pending frames: \(discardedCaptureFrames)
+        Software-sampled frames: \(sampledOutCaptureFrames)
         Capture-to-translation: \(captureToTranslationMs)ms
         Translation: \(translationElapsedMs)ms
         Screen: \(screenDimensions) / \(detectedLayout.title)
