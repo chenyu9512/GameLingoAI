@@ -6,6 +6,7 @@ import CoreImage
 import QuartzCore
 import SwiftUI
 import UIKit
+import ImageIO
 
 /// Experimental single-iPhone subtitles, rendered as video frames in a system PiP window.
 /// PiP is NOT a general cross-app overlay and App Review approval is not guaranteed.
@@ -46,6 +47,13 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     private var recentPairs = [SubtitlePage(original: "おかえりなさい。", translated: "欢迎回来。")]
     private var menuPairs: [SubtitlePage] = []
     private var renderSize = CMVideoDimensions(width: 640, height: 360)
+    private var sceneFrame: CVPixelBuffer?
+    private var sceneOrientation: CGImagePropertyOrientation = .up
+    private var sceneLiveLines: [GamePiPSceneText] = []
+    private var sceneMenuLines: [GamePiPSceneText] = []
+    private var sceneLiveAt: TimeInterval = 0
+    private var sceneMenuAt: TimeInterval = 0
+    private var lastSceneDrawAt: CFTimeInterval = 0
     private var pageGroups: [[SubtitlePage]] = []
     private var lastDrawAt: CFTimeInterval = 0
     private let frameRenderer = GamePiPFrameRenderer()
@@ -128,15 +136,58 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         rebuildPages(preservePage: layoutMode == "menuPages")
     }
 
+    private var isSceneLayout: Bool {
+        layoutMode == "portraitScene" || layoutMode == "portraitFocus"
+    }
+
+    func setSceneFrame(_ buffer: CVPixelBuffer,
+                       orientation: CGImagePropertyOrientation) {
+        guard isSceneLayout else { return }
+        sceneFrame = buffer
+        sceneOrientation = orientation
+        let now = CACurrentMediaTime()
+        // Background preview is capped at ~2 FPS; OCR and translation remain
+        // independently paced, and pending render work is latest-frame only.
+        guard now - lastSceneDrawAt >= 0.45 else { return }
+        lastSceneDrawAt = now
+        renderFrame()
+    }
+
+    func setSceneTranslatedLines(_ lines: [GamePiPSceneText]) {
+        sceneLiveLines = lines
+        sceneLiveAt = Date().timeIntervalSince1970
+        if isSceneLayout { renderFrame() }
+    }
+
+    #if DIRECT_CAPTURE
+    func setSceneMenuPage(_ page: GameMenuPage?) {
+        guard let page else {
+            sceneMenuLines = []
+            sceneMenuAt = 0
+            return
+        }
+        sceneMenuLines = page.blocks.compactMap { block in
+            guard let text = block.chinese, !text.isEmpty else { return nil }
+            return GamePiPSceneText(original: block.original, translated: text,
+                                    x: block.x, y: block.y,
+                                    width: block.width, height: block.height)
+        }
+        sceneMenuAt = page.scannedAt.timeIntervalSince1970
+        if isSceneLayout { renderFrame() }
+    }
+    #endif
+
     func setMode(_ mode: String, layout: String) {
         let newMode = ["bilingual", "chinese", "original"].contains(mode) ? mode : "bilingual"
         let layouts = ["compact", "standard", "learning", "multiBilingual",
                        "denseChinese", "menuPages", "fullBilingual",
-                       "fullChinese", "spatialMenu"]
+                       "fullChinese", "spatialMenu", "portraitScene",
+                       "portraitFocus"]
         let newLayout = layouts.contains(layout) ? layout : "standard"
         guard subtitleMode != newMode || layoutMode != newLayout else { return }
         subtitleMode = newMode
         layoutMode = newLayout
+        if !isSceneLayout { sceneFrame = nil }
         rebuildPages()
     }
 
@@ -347,6 +398,11 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     }
 
     func stop() {
+        sceneFrame = nil
+        sceneLiveLines = []
+        sceneMenuLines = []
+        sceneLiveAt = 0
+        sceneMenuAt = 0
         isPreparing = false
         launchFailed = false
         startAfterFirstFrame = false
@@ -409,11 +465,25 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
             selected = [GamePiPFrameRenderer.Pair(original: item.original,
                                                   translated: item.translated)]
         }
+        let now = Date().timeIntervalSince1970
+        // Use only recent positioned results. A previous game's saved menu
+        // must not be painted on an unrelated live background.
+        let liveValid = now - sceneLiveAt < 9 && !sceneLiveLines.isEmpty
+        let menuValid = now - sceneMenuAt < 12 && !sceneMenuLines.isEmpty
+        let spatial: [GamePiPSceneText] =
+            menuValid && (!liveValid || sceneMenuAt > sceneLiveAt)
+            ? sceneMenuLines : (liveValid ? sceneLiveLines : [])
         let next = GamePiPFrameRenderer.Frame(
             generation: renderGeneration, entries: selected,
             layout: layoutMode, mode: subtitleMode, fontScale: fontScale,
             pageIndex: pageIndex, pageCount: count,
-            renderWidth: Int(renderSize.width), renderHeight: Int(renderSize.height))
+            renderWidth: isSceneLayout ? GamePiPSceneLayout.portraitWidth :
+                Int(renderSize.width),
+            renderHeight: isSceneLayout ? GamePiPSceneLayout.portraitHeight :
+                Int(renderSize.height),
+            sceneBuffer: isSceneLayout ? sceneFrame : nil,
+            sceneOrientation: sceneOrientation,
+            sceneEntries: isSceneLayout ? spatial : [])
         frameRenderer.render(next) { [weak self] generation, buffer, elapsed in
             guard let self, generation == self.renderGeneration else { return }
             self.renderElapsedMs = Int(elapsed.rounded())
