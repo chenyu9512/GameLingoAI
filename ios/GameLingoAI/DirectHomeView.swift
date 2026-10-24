@@ -84,6 +84,9 @@ struct DirectHomeView: View {
         }
         .onChange(of: scenePhase) { _, state in
             capture.setHostAppForeground(state == .active)
+            if state == .active {
+                capture.refreshOfflineAvailability()
+            }
             if state == .background { store.flushHistory() }
         }
         .onChange(of: store.activeID) { _, _ in
@@ -135,6 +138,7 @@ struct DirectHomeView: View {
         }
         .onReceive(NotificationCenter.default.publisher(
             for: UIApplication.didBecomeActiveNotification)) { _ in
+            capture.refreshOfflineAvailability()
             capture.heartbeat()
         }
         .translationTask(translationPreparation) { session in
