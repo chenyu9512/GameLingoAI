@@ -35,6 +35,12 @@ enum GameOCRSpatialMerge {
                       appended: dropped)
     }
 
+    private static func overlaps(_ a: GamePiPSceneText,
+                                 _ b: GamePiPSceneText) -> Bool {
+        max(a.x, b.x) < min(a.x + a.width, b.x + b.width) &&
+        max(a.y, b.y) < min(a.y + a.height, b.y + b.height)
+    }
+
     private static func normalized(_ text: String) -> String {
         text.precomposedStringWithCanonicalMapping.unicodeScalars.filter {
             CharacterSet.letters.contains($0) || CharacterSet.decimalDigits.contains($0)
@@ -44,18 +50,24 @@ enum GameOCRSpatialMerge {
     static func merge(primary: String, positions: [GamePiPSceneText],
                       secondary: [GamePiPSceneText]) -> Result {
         let source = primary.isEmpty ? [] : primary.components(separatedBy: "\n")
+        let canMap = source.count == positions.count
         var additional: [GamePiPSceneText] = []
+        // Two distinct locations can legitimately show the same short game
+        // text (HP, menu item). De-duplicate only if text AND boxes overlap.
         for line in secondary where !line.original.isEmpty {
-            let existsInPrimary = source.contains { GameOCRQuality.isSimilar($0, line.original) }
+            let existsInPrimary = source.enumerated().contains { index, text in
+                guard normalized(text) == normalized(line.original) else { return false }
+                return !canMap || overlaps(positions[index], line)
+            }
             let alreadyAppended = additional.contains {
-                GameOCRQuality.isSimilar($0.original, line.original)
+                normalized($0.original) == normalized(line.original)
+                    && overlaps($0, line)
             }
             if !existsInPrimary && !alreadyAppended {
                 additional.append(line)
             }
         }
         let combined = (source + additional.map(\.original)).joined(separator: "\n")
-        let canMap = source.count == positions.count
         return Result(text: combined,
                       positions: canMap ? positions + additional : [],
                       appended: additional.count)
