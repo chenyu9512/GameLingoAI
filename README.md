@@ -1,4 +1,17 @@
-# GameLingo Direct
+# GameLingoAI · Direct
+
+**当前维护线：v3.5.3（Build 14）｜分支 `main`｜iOS 27｜Apple Vision OCR**
+
+> 这是目前保留的 Direct 单 App 直采版本。**维护线不等于已发布 App Store 或所有机型实测通过。** 下载 IPA 前，请核对分支和构建工作流。
+
+| 版本 | 分支 | 状态 | 工作流 |
+| --- | --- | --- | --- |
+| **Direct v3.5.3 (14)** | **`main`** | **当前维护线** | `ios-direct-unsigned` |
+| ReplayKit v2.0.0 (1) | `main` 的历史构建模式 | 旧方案，仅供回溯 | `ios-offline-unsigned` |
+| ML Kit 日语 v3.6.0 (14) | `experiment/mlkit-japanese-ocr` | 旧实验，保留不混入主线 | `ios-direct-mlkit-unsigned` |
+| Universal OCR v3.7.0 (15) | `feature/universal-ocr-ui-language` | 独立开发实验，**不在本次整理中修改** | `ios-universal-ocr-unsigned` |
+
+**[版本与分支说明 →](docs/VERSION_GUIDE.md)**　·　**[3.5.3 本次维护线的变更记录 →](docs/RELEASE_AUDIT_3_5_3.md)**　·　**[历史 ReplayKit 文档 →](docs/legacy/REPLAYKIT_OFFLINE.md)**
 
 在 iPhone 上玩日语游戏时，我经常需要停下来查菜单、看对话，尤其是一些没有中文的 RPG。GameLingo Direct 就是为这件事做的：读取屏幕上的游戏文字，翻译成中文，再用画中画小窗显示出来。
 
@@ -29,7 +42,7 @@
 
 1. 在 Codemagic 中选择这个仓库的 `main` 分支。
 2. 运行 `ios-direct-unsigned` 工作流，使用带 iOS 27 SDK 的 Xcode 环境。
-3. 构建成功后，在 Artifacts 中下载 `GameLingoAI-Direct-iOS27-unsigned.ipa`。
+3. 构建成功后，在 Artifacts 中下载 **`GameLingoAI-Direct-v3.5.3-b14-unsigned.ipa`**，文件名已经包含对应的版本和 Build。
 4. 使用 SideStore 对 IPA 签名并安装到 iPhone。
 
 生成的是**未签名 IPA**，不能直接在手机上点开安装。侧载应用的签名有效期和重新签名要求取决于所使用的 Apple ID 与 SideStore 环境。
@@ -103,20 +116,15 @@ GameLingo Direct 并不修改游戏文件，也不会把中文直接写回游戏
 
 这些限制暂时不能靠提高扫描频率彻底解决。
 
-## 开发和构建状态
+## 开发与版本核对
 
-当前源码版本：**3.5.1（Build 11）**。
+- **当前 `main`：Direct v3.5.3（Build 14）。** 这是源码生成器中的实际版本，不是此前 README 写的 3.5.1（Build 11）。
+- **本版重点：** 修复自动检测游戏语言时的翻译抖动和失败重试；在真正调用离线翻译模型前检查语言包可用性，按语言对设置重试冷却，并改进不包含原文/译文内容的诊断记录。详细范围见 [3.5.3 维护记录](docs/RELEASE_AUDIT_3_5_3.md)。
+- **基础实现：** iOS 27 单 App 直采，Apple Vision OCR，离线 Apple Translation、PiP 双语字幕、游戏词库、整屏扫描。它不使用 ReplayKit 扩展或 App Groups。
+- **历史记录：** [3.5.2](docs/RELEASE_AUDIT_3_5_2.md) / [3.5.1](docs/RELEASE_AUDIT_3_5_1.md) 的审计报告保留供对照；不代表当前版本退回到那些源码。
+- **独立实验：** ML Kit 日语与 Universal OCR 在各自的分支中开发，**不会因为主线 README 更新而合并或修改**。
+- **构建位置：** 代码在 `ios/GameLingoAI/`；Xcode 项目由 `tools/build_xcodeproj.py` 在 Codemagic 构建时生成；对应工作流写在 `codemagic.yaml`。
 
-本版主要调整实时字幕的处理方式：PiP 的文字排版和视频帧生成交给独立 CoreText 队列，复用视频缓冲；新对白优先显示，旧字幕不再挡住新译文。底部小字精确 OCR 和整屏菜单共用较低优先级的扫描队列，不阻塞快速对白 OCR。历史记录写入也会适当合并，减少主线程短暂停顿。
+仓库没有公开发布的 GitHub Release 或 App Store 成品。提交代码、静态检测通过与真正的 iPhone 实测是不同阶段，最终以 Codemagic 编译日志和真实设备测试为准。
 
-「运行诊断」增加了采集排队、OCR、翻译、字幕绘制，以及采集到 PiP 视频帧提交的最近一分钟 P50/P95 统计。它们用于比较不同游戏与设置，不能直接代替实际屏幕呈现延迟。
-
-[3.5.1 性能审核与真机验收项](docs/RELEASE_AUDIT_3_5_1.md)。
-
-`main` 分支保留的是 iOS 27 的单 App 直采方案，不使用 App Groups 或 ReplayKit 广播扩展。Xcode 工程由 `tools/build_xcodeproj.py` 在构建时生成，Codemagic 负责运行静态检查、Swift 检查及 iOS 编译。
-
-此前中文朗读代码的编译错误已经修复。3.5.1 的新视频渲染器仍需要通过 Codemagic Xcode 27.1 完整编译及真实 iPhone 的 PiP 验收；当前源码提交不等于已实测达到某个延迟数字。仓库里的代码更新不代表已经在所有 iPhone 上验证通过。
-
-代码主要在 `ios/GameLingoAI/`，构建配置是 `codemagic.yaml`。需要看具体改动和测试范围，可以参考 [3.5 源码审核记录](docs/RELEASE_AUDIT_3_5.md)。
-
-如果发现问题，最好同时提供游戏截图、OCR 诊断文本或 Codemagic 编译日志。分享前记得去掉个人信息和 API Key。
+如果发现识别、翻译或 PiP 故障，附上游戏、App 内版本、GitHub 分支、Codemagic 工作流与相关日志，会比仅凭一张报错截图更容易定位。分享日志前请检查其中是否含个人信息或 API Key。
