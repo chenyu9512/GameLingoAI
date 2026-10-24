@@ -19,6 +19,7 @@ struct DirectHomeView: View {
     @State private var awaitingPiPForCapture = false
     @State private var actionFeedback = ""
     @State private var actionFeedbackIsError = false
+    @State private var feedbackRevision = 0
 
     private enum ConfigSection: String, CaseIterable {
         case scan = "识别"
@@ -1343,10 +1344,19 @@ struct DirectHomeView: View {
     }
 
     private func announce(_ message: String, error: Bool = false) {
-        actionFeedback = message
-        actionFeedbackIsError = error
+        feedbackRevision += 1
+        let revision = feedbackRevision
+        withAnimation(.easeInOut(duration: 0.18)) {
+            actionFeedback = message
+            actionFeedbackIsError = error
+        }
         if error { UINotificationFeedbackGenerator().notificationOccurred(.error) }
         else { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(error ? 6 : 3))
+            guard revision == feedbackRevision else { return }
+            withAnimation(.easeOut(duration: 0.2)) { actionFeedback = "" }
+        }
     }
 
     private func updateCaptureConfiguration() {
@@ -1419,19 +1429,21 @@ struct DirectHomeView: View {
                         ? (image.width >= image.height ? .portrait : .landscape)
                         : (image.width >= image.height ? .landscape : .portrait),
                     overrideProvider: .offline)
-                screenshotStatus = "识别了 \(blocks.count) 条；请在“整屏文字”查看逐条中文"
+                screenshotStatus = "识别了 \(blocks.count) 条；请在“整屏文字”查看目标语言译文"
+                announce(screenshotStatus)
             }
         } catch {
             screenshotStatus = "OCR 失败：" + error.localizedDescription
+            announce(screenshotStatus, error: true)
         }
     }
 
     private var onboardingSheet: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 19) {
-                Label("GameLingo 双语模式", systemImage: "captions.bubble.fill")
+                Label("GameLingo · 通用屏幕翻译", systemImage: "captions.bubble.fill")
                     .font(.title2.bold()).foregroundStyle(mint)
-                Text("① 首页按需准备系统语言包；默认本机离线翻译。先用“双语测试”检查 PiP。\n\n② 授权完整屏幕捕获并回到游戏。开启底部强化 OCR 能补扫边缘小字。\n\n③ 小窗支持自动连续翻页、暂停、前后翻页、2～10 秒调速和可选中文朗读。\n\n④ 游戏配置现分为“识别 / 词库 / 翻译 / 偏好”。词库可导入多份 TXT，一键启用，并能继续使用勇者斗恶龙词库。\n\n⑤ 可选在线翻译必须先填写自己的 API Key 并测试成功；Google Cloud 等可能涉及计费。整屏菜单全文在“整屏文字”查看。")
+                Text("① 首页选择源语言（可自动识别）和目标语言；默认本机翻译，首次使用对应语言对时需要按 iOS 提示安装资源。\n\n② 选择 OCR 引擎后立即生效。混合模式下 Vision 负责定位，PaddleOCR 仅按需增强。\n\n③ 点击“开始实时翻译”，等待系统 PiP 确认并允许屏幕采集。若 PiP 首次不允许开启，可重试或跳过小窗。\n\n④ 悬浮窗提供双语、仅译文、静态阅读及手动翻页。可选朗读跟随目标语言。\n\n⑤ 词库、截图翻译、整屏菜单均可使用；目前内置 RPG 词条以中文为译文目标。外部翻译服务需主动启用并测试，可能产生服务商费用。")
                     .lineSpacing(4)
                 Text("限制：系统可能暂停后台翻译，部分游戏可能限制屏幕录制；PiP 大小和位置由 iOS 管理。")
                     .font(.caption).foregroundStyle(.secondary)
