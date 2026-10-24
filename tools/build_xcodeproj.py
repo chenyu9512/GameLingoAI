@@ -40,7 +40,7 @@ def obj(key, isa, **props):
     objects[key]=dict(isa=isa,**props)
     return Raw(i)
 
-src_app=(['ios/GameLingoAI/GameLingoAIApp.swift','ios/GameLingoAI/GameLingoStore.swift','ios/GameLingoAI/GameOnlineTranslation.swift','ios/GameLingoAI/GameTranslationBackoff.swift','ios/GameLingoAI/GameGlossaryTXTParser.swift','ios/GameLingoAI/GameGlossaryLibrary.swift','ios/GameLingoAI/GameGlossaryLibraryView.swift','ios/GameLingoAI/GameLanguageSupport.swift','ios/GameLingoAI/GameOCRQuality.swift','ios/GameLingoAI/GameOCRSessionPolicy.swift','ios/GameLingoAI/GamePaddleOCR.swift','ios/GameLingoAI/GameOCRRouting.swift','ios/GameLingoAI/GameLanguagePackView.swift','ios/GameLingoAI/GameStartupWarmup.swift','ios/GameLingoAI/GameDiagnosticLog.swift','ios/GameLingoAI/GameRPGDictionary.swift','ios/GameLingoAI/GameRPGDictionaryView.swift','ios/GameLingoAI/GameTranslationSettingsView.swift','ios/GameLingoAI/GameCaptureGeometry.swift','ios/GameLingoAI/GameMenuCatalog.swift','ios/GameLingoAI/DirectHomeView.swift','ios/GameLingoAI/FloatingSubtitleController.swift','ios/GameLingoAI/GamePiPFrameRenderer.swift','ios/GameLingoAI/GamePiPReadingLayout.swift','ios/GameLingoAI/DirectGameCapture.swift'] if DIRECT else ['ios/GameLingoAI/GameLingoAIApp.swift','ios/GameLingoAI/ContentView.swift','ios/GameLingoAI/SubtitleInbox.swift','ios/GameLingoAI/FloatingSubtitleController.swift','ios/GameLingoAI/GamePiPFrameRenderer.swift','ios/GameLingoAI/GamePiPReadingLayout.swift'])
+src_app=(['ios/GameLingoAI/GameLingoAIApp.swift','ios/GameLingoAI/GameLingoStore.swift','ios/GameLingoAI/GameTranslationLanguages.swift','ios/GameLingoAI/GameOnlineTranslation.swift','ios/GameLingoAI/GameTranslationBackoff.swift','ios/GameLingoAI/GameGlossaryTXTParser.swift','ios/GameLingoAI/GameGlossaryLibrary.swift','ios/GameLingoAI/GameGlossaryLibraryView.swift','ios/GameLingoAI/GameLanguageSupport.swift','ios/GameLingoAI/GameOCRQuality.swift','ios/GameLingoAI/GameOCRSessionPolicy.swift','ios/GameLingoAI/GamePaddleOCR.swift','ios/GameLingoAI/GameOCRRouting.swift','ios/GameLingoAI/GameLanguagePackView.swift','ios/GameLingoAI/GameStartupWarmup.swift','ios/GameLingoAI/GameDiagnosticLog.swift','ios/GameLingoAI/GameRPGDictionary.swift','ios/GameLingoAI/GameRPGDictionaryView.swift','ios/GameLingoAI/GameTranslationSettingsView.swift','ios/GameLingoAI/GameCaptureGeometry.swift','ios/GameLingoAI/GameMenuCatalog.swift','ios/GameLingoAI/DirectHomeView.swift','ios/GameLingoAI/FloatingSubtitleController.swift','ios/GameLingoAI/GamePiPFrameRenderer.swift','ios/GameLingoAI/GamePiPReadingLayout.swift','ios/GameLingoAI/DirectGameCapture.swift'] if DIRECT else ['ios/GameLingoAI/GameLingoAIApp.swift','ios/GameLingoAI/ContentView.swift','ios/GameLingoAI/SubtitleInbox.swift','ios/GameLingoAI/FloatingSubtitleController.swift','ios/GameLingoAI/GamePiPFrameRenderer.swift','ios/GameLingoAI/GamePiPReadingLayout.swift'])
 src_ext=['ios/BroadcastUpload/SampleHandler.swift']
 src_shared=['ios/Shared/SubtitleMessage.swift','ios/Shared/BuildIdentity.swift']
 plists=['ios/GameLingoAI/Info.plist','ios/BroadcastUpload/Info.plist','ios/GameLingoAI/InfoDirect.plist']
@@ -92,7 +92,7 @@ common={
  'ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS':'NO',
 }
 if PADDLE:
-    common.update({'MARKETING_VERSION':'3.7.2', 'CURRENT_PROJECT_VERSION':'17'})
+    common.update({'MARKETING_VERSION':'3.8.0', 'CURRENT_PROJECT_VERSION':'18'})
 
 app_build={**common, 'PRODUCT_BUNDLE_IDENTIFIER':BUNDLE_ID,
  'INFOPLIST_FILE':'ios/GameLingoAI/InfoDirect.plist' if DIRECT else 'ios/GameLingoAI/Info.plist',
