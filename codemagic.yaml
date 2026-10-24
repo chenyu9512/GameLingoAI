@@ -235,7 +235,7 @@ workflows:
           if not pbxproj.is_file():
               raise SystemExit("Pods project missing after pod install")
           content = pbxproj.read_text(encoding="utf-8")
-          versions = re.findall(r'IPHONEOS_DEPLOYMENT_TARGET\\s*=\\s*"?([0-9]+(?:\\.[0-9]+)*)"?\\s*;', content)
+          versions = re.findall(r'IPHONEOS_DEPLOYMENT_TARGET\s*=\s*"?([0-9]+(?:\.[0-9]+)*)"?\s*;', content)
           if not versions:
               raise SystemExit("No pod deployment targets found; cannot verify compatibility")
           old_targets = sorted({v for v in versions if int(v.split(".")[0]) < 15})
