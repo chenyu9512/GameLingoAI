@@ -49,6 +49,11 @@ final class DirectGameCapture: NSObject, ObservableObject,
     @Published private(set) var detectedLayout: GameFrameLayout = .portrait
     @Published private(set) var screenDimensions = "等待画面"
     @Published private(set) var activeRotation: GameScreenRotation = .automatic
+    @Published private(set) var sceneText: [GamePiPSceneText] = []
+    // The handler receives only in-memory frames on the main queue.
+    private var sceneFrameHandler: ((CVPixelBuffer, CGImagePropertyOrientation) -> Void)?
+    private var scenePreviewEnabled = false
+    private var lastSceneFrameAt: TimeInterval = 0
 
     private struct Snapshot: Equatable {
         var profileID: UUID
@@ -85,6 +90,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let rejected: Int
         var backend: GameOCREngine = .vision
         var visionBoxes: [CGRect] = []
+        var spatialLines: [GamePiPSceneText] = []
     }
 
     // ScreenCaptureKit callbacks must never perform Vision OCR synchronously.
@@ -175,6 +181,17 @@ final class DirectGameCapture: NSObject, ObservableObject,
 
     /// Called by SwiftUI scene lifecycle; prevents scanning GameLingo's own UI
     /// as if it were a game menu.
+    @MainActor
+    func setScenePreview(enabled: Bool,
+                         handler: ((CVPixelBuffer, CGImagePropertyOrientation) -> Void)?) {
+        sceneFrameHandler = enabled ? handler : nil
+        gate.lock()
+        scenePreviewEnabled = enabled
+        lastSceneFrameAt = 0
+        gate.unlock()
+        if !enabled { sceneText = [] }
+    }
+
     @MainActor
     func setHostAppForeground(_ value: Bool) {
         gate.lock()
@@ -280,6 +297,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         pendingTranslation = nil
         translationBackoff.reset()
         isCapturing = false
+        sceneText = []
         GameDiagnosticLog.shared.event("capture_stop")
         phase = "已停止"
         details = "屏幕采集已结束"
@@ -414,6 +432,20 @@ final class DirectGameCapture: NSObject, ObservableObject,
         // minimumInterval. The first frame after each configuration change
         // always passes; no stale frame queue is introduced.
         let uptime = ProcessInfo.processInfo.systemUptime
+        gate.lock()
+        let sceneDue = scenePreviewEnabled && !hostAppForeground &&
+            (lastSceneFrameAt == 0 || uptime - lastSceneFrameAt >= 0.5)
+        if sceneDue { lastSceneFrameAt = uptime }
+        let sceneOrientation = config.rotation.imageOrientation
+        gate.unlock()
+        if sceneDue {
+            // Dedicated 2-FPS preview lane: does not wait for Vision OCR and
+            // does not enqueue full-resolution frames for later playback.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isCapturing else { return }
+                self.sceneFrameHandler?(buffer, sceneOrientation)
+            }
+        }
         gate.lock()
         let revision = frameRevision
         if lastIngressRevision != revision {
@@ -731,7 +763,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
         DispatchQueue.main.async { [weak self] in
             guard let self, self.isCurrent(frame.revision) else { return }
             self.detectedSourceLanguage = resolvedSource
-            self.submit(text, profile: translationProfile, detectedAt: now)
+            self.submit(text, profile: translationProfile, detectedAt: now,
+                        spatialLines: recognition.spatialLines)
         }
     }
 
@@ -973,7 +1006,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
                     $0.topCandidates(1).first?.string
                 }
                 let candidates = observations.compactMap {
-                    item -> (String, CGFloat, CGFloat, Float)? in
+                    item -> (String, CGFloat, CGFloat, Float, CGRect)? in
                     if let excluded = snapshot.excluded,
                        excluded.contains(CGPoint(x: item.boundingBox.midX,
                                                  y: item.boundingBox.midY)) { return nil }
@@ -981,7 +1014,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
                     guard let best = GameOCRQuality.best(from: choices,
                                                         language: snapshot.language) else { return nil }
                     return (best.text, item.boundingBox.midY,
-                            item.boundingBox.minX, best.confidence)
+                            item.boundingBox.minX, best.confidence, item.boundingBox)
                 }
                 let sorted = candidates.sorted { a, b in
                     abs(a.1 - b.1) < 0.025 ? a.2 < b.2 : a.1 > b.1
@@ -995,7 +1028,14 @@ final class DirectGameCapture: NSObject, ObservableObject,
                                    lineCount: observations.count,
                                    raw: rawLines.joined(separator: "\n"),
                                    rejected: max(0, rawLines.count - sorted.count),
-                                   visionBoxes: observations.map(\.boundingBox))
+                                   visionBoxes: observations.map(\.boundingBox),
+                                   spatialLines: sorted.map { item in
+                                       GamePiPSceneText(
+                                           original: item.0, translated: "",
+                                           x: Double(item.4.minX), y: Double(item.4.minY),
+                                           width: Double(item.4.width),
+                                           height: Double(item.4.height))
+                                   })
             } catch {
                 DispatchQueue.main.async {
                     self.phase = "文字识别失败"
@@ -1025,7 +1065,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
                    (first.text.isEmpty || first.confidence < 0.60) {
                     return Recognition(text: improved.text, confidence: improved.confidence,
                                        lineCount: improved.lines, raw: first.raw,
-                                       rejected: first.rejected, backend: .paddleHybrid)
+                                       rejected: first.rejected, backend: .paddleHybrid,
+                                       spatialLines: improved.lines == first.spatialLines.count
+                                           ? first.spatialLines : [])
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -1060,7 +1102,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
     }
 
     @MainActor
-    private func submit(_ text: String, profile: Snapshot, detectedAt: TimeInterval) {
+    private func submit(_ text: String, profile: Snapshot, detectedAt: TimeInterval,
+                        spatialLines: [GamePiPSceneText]) {
         let now = Date().timeIntervalSince1970
         if text == lastCompleted {
             GameDiagnosticLog.shared.event("pipeline_skip", metrics: ["reason_code": 4])
@@ -1088,13 +1131,14 @@ final class DirectGameCapture: NSObject, ObservableObject,
         details = "已识别 \(text.count) 个字符 · 置信度 \(Int(ocrConfidence * 100))%"
         pendingTranslation = Task { @MainActor [weak self] in
             await self?.translate(text, profile: profile, revision: revision,
-                                  detectedAt: detectedAt)
+                                  detectedAt: detectedAt, spatialLines: spatialLines)
         }
     }
 
     @MainActor
     private func translate(_ text: String, profile: Snapshot,
-                           revision: Int, detectedAt: TimeInterval) async {
+                           revision: Int, detectedAt: TimeInterval,
+                           spatialLines: [GamePiPSceneText]) async {
         let started = CFAbsoluteTimeGetCurrent()
         let key = profile.provider.rawValue + "|" + profile.name + "|" + profile.language
             + "|" + profile.targetLanguage + "|" + text
@@ -1179,6 +1223,19 @@ final class DirectGameCapture: NSObject, ObservableObject,
             lastCompleted = text
             original = text
             latest = result
+            // Preserve per-line source positions only when translated lines
+            // align 1:1; mismatched translation cannot be safely positioned.
+            let outputLines = result.split(separator: "\n", omittingEmptySubsequences: false)
+                .map(String.init)
+            if outputLines.count == spatialLines.count {
+                sceneText = zip(spatialLines, outputLines).map { source, translated in
+                    var mapped = source
+                    mapped.translated = translated
+                    return mapped
+                }
+            } else {
+                sceneText = []
+            }
             translatedCount += 1
             translationElapsedMs = Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
             GameDiagnosticLog.shared.event("translation_complete", metrics: [
