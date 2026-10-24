@@ -14,6 +14,8 @@ generator = read("tools/build_xcodeproj.py")
 project = read("GameLingoAI.xcodeproj/project.pbxproj")
 app = read("ios/GameLingoAI/GameLingoAIApp.swift")
 home = read("ios/GameLingoAI/DirectHomeView.swift")
+pack_path = root / "ios/GameLingoAI/GameLanguagePackView.swift"
+language_pack = pack_path.read_text(encoding="utf-8") if pack_path.is_file() else ""
 capture = read("ios/GameLingoAI/DirectGameCapture.swift")
 subtitle = read("ios/GameLingoAI/FloatingSubtitleController.swift")
 pip_renderer = read("ios/GameLingoAI/GamePiPFrameRenderer.swift")
@@ -161,8 +163,19 @@ checks = {
     "LibreTranslate compatible": "case .libreTranslate, .customJSON" in online
         and "body[\"api_key\"] = key" in online,
     "offline languages downloaded as needed":
-        "try await session.prepareTranslation()" in home
-        and "downloadSourceLanguage" in home,
+        (
+            # Legacy direct build: language setup lived in DirectHomeView.
+            "try await session.prepareTranslation()" in home
+            and "downloadSourceLanguage" in home
+        ) or (
+            # Universal OCR: the separate language resource view owns the
+            # system request and verifies installed/supported status.
+            "try await session.prepareTranslation()" in language_pack
+            and "LanguageAvailability().status(" in language_pack
+            and "GameLanguagePackView(preferredSource:" in home
+            and "GameLanguagePackView.swift" in generator
+            and "GameLanguagePackView.swift" in project
+        ),
     "Vision OCR language mapping": "supportedRecognitionLanguages()" in languages
         and "GameLanguageSupport.setup(request" in capture,
     "curated RPG dictionary and DQ terminology":
