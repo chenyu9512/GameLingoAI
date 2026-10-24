@@ -197,8 +197,8 @@ workflows:
       - artifacts/xcodebuild-direct.log
 
 
-  ios-direct-mlkit-unsigned:
-    name: GameLingo Direct ML Kit Japanese OCR experiment - unsigned
+  ios-universal-ocr-unsigned:
+    name: GameLingo Universal OCR - Vision + PaddleOCR - unsigned
     instance_type: mac_mini_m2
     max_build_duration: 60
     environment:
@@ -208,9 +208,9 @@ workflows:
         script: |
           set -e
           python3 tools/prepare_build.py
-          GAMELINGO_DIRECT_CAPTURE=1 GAMELINGO_EXPERIMENTAL_MLKIT=1 python3 tools/build_xcodeproj.py
+          GAMELINGO_DIRECT_CAPTURE=1 GAMELINGO_ENABLE_PADDLE=1 python3 tools/build_xcodeproj.py
           python3 tools/verify_direct_release.py
-          python3 tools/verify_mlkit_experiment.py
+          python3 tools/verify_universal_ocr.py
           echo "Running original OCR quality smoke tests"
           xcrun swiftc ios/GameLingoAI/GameOCRQuality.swift tests/ocr_quality_smoke.swift -o /tmp/gamelingo-ocr-smoke
           /tmp/gamelingo-ocr-smoke
@@ -223,9 +223,16 @@ workflows:
           echo "Typechecking Foundation-only diagnostics and backoff"
           xcrun swiftc -typecheck ios/GameLingoAI/GameDiagnosticLog.swift ios/GameLingoAI/GameTranslationBackoff.swift
           echo "Swift syntax check (adapter's conditional compilation)"
-          xcrun swiftc -frontend -parse -D MLKIT_OCR ios/GameLingoAI/GameMLKitJapaneseOCR.swift
-          xcrun swiftc -frontend -parse -D DIRECT_CAPTURE -D MLKIT_OCR ios/GameLingoAI/DirectGameCapture.swift
-      - name: Install Google ML Kit Japanese model (experimental only)
+          xcrun swiftc -frontend -parse -D PADDLE_OCR ios/GameLingoAI/GamePaddleOCR.swift
+          xcrun swiftc -frontend -parse ios/GameLingoAI/GameLanguagePackView.swift
+          xcrun swiftc -frontend -parse -D DIRECT_CAPTURE -D PADDLE_OCR ios/GameLingoAI/DirectGameCapture.swift
+      - name: Fetch official PP-OCRv6 Small recognition weights
+        script: |
+          set -e
+          bash tools/fetch_paddle_rec_model.sh
+          test -s ios/GameLingoAI/PaddleModels/rec/inference.onnx
+          test -s ios/GameLingoAI/PaddleModels/rec/characters.txt
+      - name: Install PaddleOCR ONNX model and runtime
         script: |
           set -e
           command -v pod >/dev/null || { echo "CocoaPods is missing from this Codemagic image"; exit 1; }
@@ -252,7 +259,7 @@ workflows:
         script: |
           set -e
           mkdir -p "$CM_BUILD_DIR/artifacts"
-          BUILD_LOG="$CM_BUILD_DIR/artifacts/xcodebuild-mlkit.log"
+          BUILD_LOG="$CM_BUILD_DIR/artifacts/xcodebuild-universal.log"
           if xcodebuild \
             -workspace "$CM_BUILD_DIR/GameLingoAI.xcworkspace" \
             -scheme GameLingoAI \
@@ -266,25 +273,27 @@ workflows:
             build > "$BUILD_LOG" 2>&1; then
             tail -n 35 "$BUILD_LOG"
           else
-            echo "===== ML KIT SWIFT/COCOAPODS ERRORS ====="
+            echo "===== UNIVERSAL OCR SWIFT/COCOAPODS ERRORS ====="
             grep -n -E 'error:|could not|Unable to find|No such module|BUILD FAILED' "$BUILD_LOG" | head -n 85 || true
             tail -n 40 "$BUILD_LOG"
             exit 65
           fi
-      - name: Validate and package ML Kit experimental IPA
+      - name: Validate and package Universal OCR IPA
         script: |
           set -e
           APP="$CM_BUILD_DIR/Build/Build/Products/Release-iphoneos/GameLingoAI.app"
           test -d "$APP"
+          test -s "$APP/PaddleModels/rec/inference.onnx" || { echo "Paddle model missing from IPA!"; exit 1; }
+          test -s "$APP/PaddleModels/rec/characters.txt" || { echo "Paddle vocabulary missing from IPA!"; exit 1; }
           test ! -d "$APP/PlugIns"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist" | grep -q '^3.6.0$'
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist" | grep -q '^3.7.0$'
           mkdir -p "$CM_BUILD_DIR/artifacts/Payload"
           cp -R "$APP" "$CM_BUILD_DIR/artifacts/Payload/GameLingoAI.app"
           cd "$CM_BUILD_DIR/artifacts"
-          /usr/bin/zip -qr GameLingoAI-MLKit-Japanese-Experimental-unsigned.ipa Payload
+          /usr/bin/zip -qr GameLingoAI-Universal-OCR-unsigned.ipa Payload
           rm -rf Payload
     artifacts:
-      - artifacts/GameLingoAI-MLKit-Japanese-Experimental-unsigned.ipa
-      - artifacts/xcodebuild-mlkit.log
+      - artifacts/GameLingoAI-Universal-OCR-unsigned.ipa
+      - artifacts/xcodebuild-universal.log
