@@ -22,8 +22,8 @@ struct GameMenuPage: Codable, Identifiable {
     var gameName: String
     var language: String
     var scannedAt: Date
-    var targetLanguage: String? = nil
     var blocks: [GameMenuBlock]
+    var targetLanguage: String? = nil
     // Optional for backwards-compatible decoding of pages saved before 3.2.
     var layout: GameFrameLayout? = nil
     var provider: GameTranslationProvider? = nil
