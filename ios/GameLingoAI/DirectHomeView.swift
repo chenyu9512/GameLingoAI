@@ -140,10 +140,16 @@ struct DirectHomeView: View {
         .onChange(of: store.playbackSeconds) { _, _ in configureOverlay() }
         .onChange(of: store.readAloud) { _, _ in configureOverlay() }
         .onChange(of: overlay.isActive) { _, active in
+            configureOverlay()
             guard awaitingPiPForCapture && active else { return }
             awaitingPiPForCapture = false
             announce("悬浮窗已开启，请授予屏幕采集权限")
             capture.start()
+        }
+        .onChange(of: overlay.protectedFromSelfCapture) { _, protected in
+            if protected {
+                announce("防止画面无限嵌套：已自动使用纯译文安全显示")
+            }
         }
         .onChange(of: capture.isCapturing) { _, capturing in
             if !capturing { overlay.clearScene() }
@@ -461,7 +467,7 @@ struct DirectHomeView: View {
                         .font(.caption.bold().monospaced())
                         .foregroundStyle(overlay.isActive ? mint : .orange)
                 }
-                Text("竖版画面模式显示授权采集的游戏画面，并在 OCR 位置覆盖已翻译的文字。")
+                Text("安全优先：系统无法保证排除 PiP 时，会自动暂停游戏画面回灌并保留实时文字翻译。")
                     .font(.caption2).foregroundStyle(.secondary)
                 Picker("PiP 画面排版", selection: $store.pipLayout) {
                     Text("竖版 · 全画面原位翻译").tag(GamePiPLayout.portraitScene)
@@ -1379,8 +1385,10 @@ struct DirectHomeView: View {
     }
 
     private func configureOverlay() {
-        let sceneEnabled = store.pipLayout == .portraitScene ||
-            store.pipLayout == .portraitFocus
+        // Full-display capture cannot guarantee exclusion of the system
+        // PiP window. Do not feed its image back into an active PiP.
+        let sceneEnabled = (store.pipLayout == .portraitScene ||
+            store.pipLayout == .portraitFocus) && !overlay.isActive
         if sceneEnabled {
             let pip = overlay
             capture.setScenePreview(enabled: true) { [weak pip] buffer, orientation in
