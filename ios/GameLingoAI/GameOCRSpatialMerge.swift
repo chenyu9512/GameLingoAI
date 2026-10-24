@@ -36,9 +36,9 @@ enum GameOCRSpatialMerge {
     }
 
     private static func normalized(_ text: String) -> String {
-        String(text.precomposedStringWithCanonicalMapping.unicodeScalars.filter {
+        text.precomposedStringWithCanonicalMapping.unicodeScalars.filter {
             CharacterSet.letters.contains($0) || CharacterSet.decimalDigits.contains($0)
-        }).lowercased()
+        }.map { String($0) }.joined().lowercased()
     }
 
     static func merge(primary: String, positions: [GamePiPSceneText],
