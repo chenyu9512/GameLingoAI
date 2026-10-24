@@ -114,7 +114,8 @@ final class GamePiPFrameRenderer: @unchecked Sendable {
     }
 
     private func makeSample(_ frame: Frame) -> CMSampleBuffer? {
-        let isScene = frame.layout == "portraitScene" || frame.layout == "portraitFocus"
+        let isScene = frame.layout == "portraitScene" ||
+            frame.layout == "portraitFocus" || frame.layout == "portraitSafeText"
         let requestedWidth = isScene ? GamePiPSceneLayout.portraitWidth :
             min(960, max(320, frame.renderWidth))
         let requestedHeight = isScene ? GamePiPSceneLayout.portraitHeight :
@@ -279,6 +280,26 @@ final class GamePiPFrameRenderer: @unchecked Sendable {
     /// The live screen is an in-memory CVPixelBuffer (never written to disk).
     /// Vision boxes share the oriented image's normalized lower-left origin.
     private func renderScene(_ frame: Frame, context: CGContext) {
+        if frame.layout == "portraitSafeText" {
+            // Full-display capture can contain our own system PiP. Never
+            // feed its pixels back. Render translated text only at 9:16.
+            let rows = Array(frame.entries.suffix(5))
+            draw("实时译文 · 防递归安全显示", context: context,
+                 rect: CGRect(x: 14, y: 14, width: CGFloat(width - 28), height: 43),
+                 color: accent, maximum: 21, minimum: 15, bold: true)
+            let count = max(1, rows.count)
+            let available = CGFloat(height - 77)
+            let rowHeight = available / CGFloat(count)
+            for (index, item) in rows.enumerated() {
+                let top = CGFloat(59) + CGFloat(index) * rowHeight
+                let rect = CGRect(x: 14, y: top, width: CGFloat(width - 28),
+                                  height: rowHeight - 7)
+                draw(item.translated, context: context, rect: rect,
+                     color: white, maximum: 34 * frame.fontScale,
+                     minimum: 15 * frame.fontScale, bold: true)
+            }
+            return
+        }
         guard let source = frame.sceneBuffer else {
             draw("等待屏幕采集画面…", context: context,
                  rect: CGRect(x: 12, y: CGFloat(height) * 0.4,
