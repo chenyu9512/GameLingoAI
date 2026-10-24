@@ -45,7 +45,7 @@ struct GameProfile: Codable, Identifiable, Equatable {
     var id = UUID()
     var name: String
     var language: String = "auto"
-    // Old profiles decode without this field; Vision remains the default.
+    // Old profiles decode without this field; Vision remains the fallback.
     var experimentalOCR: GameOCREngine? = nil
     var selectedOCR: GameOCREngine {
         experimentalOCR == .mlkitJapanese ? .vision : (experimentalOCR ?? .vision)
@@ -148,6 +148,7 @@ final class GameLingoStore: ObservableObject {
         var performance: GamePerformance
         var provider: GameTranslationProvider?
         var endpoint: GameTranslationEndpoint?
+        var targetLanguage: String?
         var autoplay: Bool?
         var playbackSeconds: Double?
         var readAloud: Bool?
@@ -163,6 +164,7 @@ final class GameLingoStore: ObservableObject {
     @Published var performance: GamePerformance { didSet { persist() } }
     @Published var provider: GameTranslationProvider { didSet { persist() } }
     @Published var endpoint: GameTranslationEndpoint { didSet { persist() } }
+    @Published var targetLanguage: String { didSet { persist() } }
     @Published var autoplay: Bool { didSet { persist() } }
     @Published var playbackSeconds: Double { didSet { persist() } }
     @Published var readAloud: Bool { didSet { persist() } }
@@ -201,6 +203,7 @@ final class GameLingoStore: ObservableObject {
         performance = stored?.performance ?? .balanced
         provider = stored?.provider ?? .offline
         endpoint = stored?.endpoint ?? GameTranslationEndpoint()
+        targetLanguage = stored?.targetLanguage ?? GameTranslationLanguages.preferredTarget()
         autoplay = stored?.autoplay ?? false
         playbackSeconds = stored?.playbackSeconds ?? 5.0
         readAloud = stored?.readAloud ?? false
@@ -238,6 +241,14 @@ final class GameLingoStore: ObservableObject {
     func selectProfile(_ id: UUID) {
         guard profiles.contains(where: { $0.id == id }) else { return }
         activeID = id
+    }
+
+    @discardableResult
+    func selectOCREngine(_ engine: GameOCREngine, for id: UUID) -> Bool {
+        guard engine == .vision || engine == .paddleHybrid,
+              let index = profiles.firstIndex(where: { $0.id == id }) else { return false }
+        profiles[index].experimentalOCR = engine
+        return profiles[index].selectedOCR == engine
     }
 
     func saveProfile(_ profile: GameProfile) {
@@ -339,6 +350,7 @@ final class GameLingoStore: ObservableObject {
         historyPersistTask = nil
         let state = Saved(profiles: profiles, activeID: activeID,
                           performance: performance, provider: provider, endpoint: endpoint,
+                          targetLanguage: targetLanguage,
                           autoplay: autoplay, playbackSeconds: playbackSeconds,
                            readAloud: readAloud, pipLayout: pipLayout,
                           subtitleMode: subtitleMode, fontScale: fontScale,
