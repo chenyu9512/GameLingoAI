@@ -145,12 +145,22 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         guard isSceneLayout else { return }
         sceneFrame = buffer
         sceneOrientation = orientation
+        guard isActive || isPreparing || startAfterFirstFrame else { return }
         let now = CACurrentMediaTime()
         // Background preview is capped at ~2 FPS; OCR and translation remain
         // independently paced, and pending render work is latest-frame only.
         guard now - lastSceneDrawAt >= 0.45 else { return }
         lastSceneDrawAt = now
         renderFrame()
+    }
+
+    func clearScene() {
+        sceneFrame = nil
+        sceneLiveLines = []
+        sceneMenuLines = []
+        sceneLiveAt = 0
+        sceneMenuAt = 0
+        if isSceneLayout { renderFrame() }
     }
 
     func setSceneTranslatedLines(_ lines: [GamePiPSceneText]) {
