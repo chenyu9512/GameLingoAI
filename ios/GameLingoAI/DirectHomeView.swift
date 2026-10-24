@@ -17,6 +17,8 @@ struct DirectHomeView: View {
     @StateObject private var warmup = GameStartupWarmup.shared
     @AppStorage("direct.autoOpenPiP.3_7_1") private var autoOpenPiP = true
     @State private var awaitingPiPForCapture = false
+    @State private var actionFeedback = ""
+    @State private var actionFeedbackIsError = false
 
     private enum ConfigSection: String, CaseIterable {
         case scan = "识别"
@@ -80,6 +82,7 @@ struct DirectHomeView: View {
             updateCaptureConfiguration()
             configureOverlay()
             warmup.prepare(language: store.activeProfile.language,
+                           targetLanguage: store.targetLanguage,
                            offline: store.provider == .offline)
             if !store.onboardingComplete { showingOnboarding = true }
         }
@@ -96,11 +99,13 @@ struct DirectHomeView: View {
             profileDraft = store.activeProfile
             updateCaptureConfiguration()
             warmup.prepare(language: store.activeProfile.language,
+                           targetLanguage: store.targetLanguage,
                            offline: store.provider == .offline)
         }
         .onChange(of: store.profiles) { _, _ in
             updateCaptureConfiguration()
             warmup.prepare(language: store.activeProfile.language,
+                           targetLanguage: store.targetLanguage,
                            offline: store.provider == .offline)
         }
         .onReceive(glossaryLibrary.$enabledByGame) { _ in
@@ -113,9 +118,18 @@ struct DirectHomeView: View {
             updateCaptureConfiguration()
             menuCatalog.cancelForProfileChange()
             warmup.prepare(language: store.activeProfile.language,
+                           targetLanguage: store.targetLanguage,
                            offline: store.provider == .offline)
         }
         .onChange(of: store.endpoint) { _, _ in updateCaptureConfiguration() }
+        .onChange(of: store.targetLanguage) { _, _ in
+            updateCaptureConfiguration()
+            configureOverlay()
+            warmup.prepare(language: store.activeProfile.language,
+                           targetLanguage: store.targetLanguage,
+                           offline: store.provider == .offline)
+            announce("目标语言已切换：\(GameTranslationLanguages.label(for: store.targetLanguage))")
+        }
         .onChange(of: store.performance) { _, _ in updateCaptureConfiguration() }
         .onChange(of: store.fontScale) { _, _ in configureOverlay() }
         .onChange(of: store.pipLayout) { _, _ in configureOverlay() }
@@ -126,7 +140,13 @@ struct DirectHomeView: View {
         .onChange(of: overlay.isActive) { _, active in
             guard awaitingPiPForCapture && active else { return }
             awaitingPiPForCapture = false
+            announce("悬浮窗已开启，请授予屏幕采集权限")
             capture.start()
+        }
+        .onChange(of: overlay.launchFailed) { _, failed in
+            guard failed && awaitingPiPForCapture else { return }
+            awaitingPiPForCapture = false
+            announce(overlay.status, error: true)
         }
         .onReceive(capture.$latestLine) { item in
             guard let item else { return }
@@ -167,6 +187,25 @@ struct DirectHomeView: View {
             }
         }
         .sheet(isPresented: $showingOnboarding) { onboardingSheet }
+        .overlay(alignment: .top) {
+            if !actionFeedback.isEmpty {
+                HStack(spacing: 9) {
+                    Image(systemName: actionFeedbackIsError ? "exclamationmark.triangle.fill" :
+                                                               "checkmark.circle.fill")
+                    Text(actionFeedback).font(.subheadline.weight(.medium))
+                        .lineLimit(3)
+                    Spacer(minLength: 0)
+                    Button { actionFeedback = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }.accessibilityLabel("关闭提示")
+                }
+                .padding(13)
+                .foregroundStyle(actionFeedbackIsError ? .orange : mint)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 13))
+                .padding(.horizontal, 16).padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
     }
 
     private var header: some View {
@@ -270,18 +309,22 @@ struct DirectHomeView: View {
                     .frame(height: 122)
                     .background(.black)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+                            overlay.primePreview()
+                        }
+                    }
                 Button {
                     beginGameTranslation()
                 } label: {
                     Label(capture.isCapturing ? "结束游戏翻译" :
-                          awaitingPiPForCapture ? "悬浮窗准备中…" : "一键开始游戏翻译",
+                          awaitingPiPForCapture ? "取消启动" : "开始实时翻译",
                           systemImage: capture.isCapturing ? "stop.circle.fill" : "play.circle.fill")
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 9)
                 }
                 .buttonStyle(.borderedProminent).tint(mint)
-                .disabled(awaitingPiPForCapture)
                 Toggle("开始时自动准备悬浮字幕", isOn: $autoOpenPiP)
                     .font(.subheadline).tint(mint)
                 HStack {
@@ -293,12 +336,20 @@ struct DirectHomeView: View {
                 Text("首次 OCR 预热：\(warmup.visionMilliseconds)ms · 首次离线翻译预热：\(warmup.translationMilliseconds)ms")
                     .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                 if awaitingPiPForCapture {
-                    Text("正在等待 iOS 开启 PiP。如果系统不允许，可先进行屏幕采集。")
+                    ProgressView("正在请求系统悬浮窗…")
+                    Text("请保持预览可见；系统拒绝时会明确给出重试入口。")
                         .font(.caption).foregroundStyle(.orange)
                     Button("不使用 PiP，继续授权屏幕采集") {
                         awaitingPiPForCapture = false
                         capture.start()
                     }.buttonStyle(.bordered)
+                }
+                if overlay.launchFailed && !capture.isCapturing {
+                    Button("重新请求悬浮窗") {
+                        awaitingPiPForCapture = true
+                        announce("再次请求 PiP，等待系统确认")
+                        overlay.start()
+                    }.buttonStyle(.borderedProminent).tint(mint)
                 }
                 DisclosureGroup("高级：分别控制采集与悬浮窗") {
                     DirectCapturePanel(profile: store.activeProfile,
@@ -335,15 +386,20 @@ struct DirectHomeView: View {
                     Text("自动识别无需预设源语言；离线翻译仍需要提前安装实际语言的翻译包。")
                         .font(.caption2).foregroundStyle(.white.opacity(0.73))
                 }
-                Text("当前识别：\(capture.activeOCRName)")
-                    .font(.caption).foregroundStyle(mint)
+                Text("选择的 OCR：\(capture.selectedOCRName)")
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(mint)
+                Text("本帧实际识别：\(capture.activeOCRName)")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text(capture.ocrEngineStatus)
+                    .font(.caption2).foregroundStyle(.secondary)
 
             }
 
 
             panel {
                 DisclosureGroup("离线语言资源 · 查看安装状态") {
-                    GameLanguagePackView(preferredSource: store.activeProfile.language)
+                    GameLanguagePackView(preferredSource: store.activeProfile.language,
+                                         preferredTarget: store.targetLanguage)
                 }
             }
 
@@ -686,17 +742,25 @@ struct DirectHomeView: View {
                 #if PADDLE_OCR
                 Picker("OCR 识别引擎", selection: Binding(
                     get: { profileDraft.selectedOCR },
-                    set: { profileDraft.experimentalOCR = $0 })) {
+                    set: { engine in
+                        profileDraft.experimentalOCR = engine
+                        if store.selectOCREngine(engine, for: profileDraft.id) {
+                            updateCaptureConfiguration()
+                            announce("OCR 引擎已应用：\(engine.title)")
+                        } else {
+                            announce("OCR 引擎切换失败，请重新选择配置", error: true)
+                        }
+                    })) {
                     ForEach(GameOCREngine.allCases) { engine in
                         Text(engine.title).tag(engine)
                     }
                 }.pickerStyle(.menu)
                 Text(profileDraft.selectedOCR == .paddleHybrid
-                    ? "Vision 定位文字；复杂文字由本机 PaddleOCR 模型按需复检，支持自动识别多语言。"
-                    : "Apple Vision 多语言快速识别，支持按游戏锁定源语言。")
+                    ? "混合引擎已直接保存，Vision 定位文字；Paddle 按质量阈值增强，快速模式会降低调用频率。"
+                    : "Vision 已直接保存并应用，下一帧开始生效。")
                     .font(.caption).foregroundStyle(.secondary)
                 #endif
-                Text("自动模式可识别不同文字的源语言，误判时可以改为固定语言；不会自动下载所有翻译包。")
+                Text("自动识别不预设日语。误判时可以选择任意已支持的源语言；离线语言资源按需安装。")
                     .font(.caption2).foregroundStyle(.white.opacity(0.7))
                 TextField("自定义 BCP-47 语言代码（auto = 自动）", text: $profileDraft.language)
                     .textFieldStyle(.roundedBorder)
