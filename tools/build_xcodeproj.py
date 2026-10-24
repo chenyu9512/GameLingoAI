@@ -92,7 +92,7 @@ common={
  'ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS':'NO',
 }
 if PADDLE:
-    common.update({'MARKETING_VERSION':'3.7.1', 'CURRENT_PROJECT_VERSION':'16'})
+    common.update({'MARKETING_VERSION':'3.7.2', 'CURRENT_PROJECT_VERSION':'17'})
 
 app_build={**common, 'PRODUCT_BUNDLE_IDENTIFIER':BUNDLE_ID,
  'INFOPLIST_FILE':'ios/GameLingoAI/InfoDirect.plist' if DIRECT else 'ios/GameLingoAI/Info.plist',
