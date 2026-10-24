@@ -9,7 +9,7 @@ struct TranslationSafetySmoke {
         precondition(tracker.resolve(configured: "auto", detected: "en", text: "HP 100") == "ja")
         precondition(tracker.resolve(configured: "auto", detected: "en", text: "Open the ancient door") == "en")
         precondition(tracker.resolve(configured: "auto", detected: "ja", text: "ようこそ！") == "ja")
-        precondition(tracker.resolve(configured: "auto", detected: nil, text: "01234") == "ja")
+        precondition(tracker.resolve(configured: "auto", detected: nil, text: "01234") == nil)
         precondition(tracker.resolve(configured: "ko", detected: "en", text: "hello") == "ko")
         tracker.reset()
         precondition(tracker.resolve(configured: "auto", detected: nil, text: "01234") == nil)
