@@ -82,6 +82,11 @@ final class DirectGameCapture: NSObject, ObservableObject,
                                       bottomScan: true)
     }
 
+    private struct BottomRecognition {
+        let text: String
+        let lines: [GamePiPSceneText]
+    }
+
     private struct Recognition {
         let text: String
         let confidence: Double
@@ -123,6 +128,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
     private var lastOCRAt: TimeInterval = 0
     private var lastBottomAt: TimeInterval = 0
     private var lastBottomText = ""
+    private var lastBottomSpatialLines: [GamePiPSceneText] = []
     private var lastBottomFingerprint: UInt64 = 0
     private var lastBottomDuration = 0
     private var bottomScanInFlight = false
@@ -529,6 +535,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             lastAccurateAt = 0
             lastBottomAt = 0
             lastBottomText = ""
+            lastBottomSpatialLines = []
             lastBottomFingerprint = 0
             candidate = ""
             candidateCount = 0
@@ -608,7 +615,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
                         guard let self else { return }
                         self.bottomScanInFlight = false
                         guard self.isCurrent(frame.revision) else { return }
-                        self.lastBottomText = result
+                        self.lastBottomText = result.text
+                        self.lastBottomSpatialLines = result.lines
                         self.lastBottomFingerprint = currentBottomFingerprint
                         self.lastBottomDuration = duration
                         // Refresh the bottom content on the next new frame,
@@ -620,22 +628,20 @@ final class DirectGameCapture: NSObject, ObservableObject,
             // Never append an earlier screen's footer/menu to a newer scene.
             if !lastBottomText.isEmpty && now - lastBottomAt <= 5.0 &&
                currentBottomFingerprint == lastBottomFingerprint {
-                let primary = recognition.text.components(separatedBy: "\n")
-                let supplemental = lastBottomText.components(separatedBy: "\n").filter { line in
-                    !line.isEmpty && !primary.contains(where: {
-                        GameOCRQuality.isSimilar($0, line)
-                    })
-                }
-                if !supplemental.isEmpty {
-                    let additional = supplemental.joined(separator: "\n")
+                let merged = GameOCRSpatialMerge.merge(
+                    primary: recognition.text,
+                    positions: recognition.spatialLines,
+                    secondary: lastBottomSpatialLines)
+                if merged.appended > 0 {
                     recognition = Recognition(
-                        text: (recognition.text.isEmpty ? "" : recognition.text + "\n") + additional,
+                        text: merged.text,
                         confidence: recognition.text.isEmpty
                             ? 0.79 : recognition.confidence,
-                        lineCount: recognition.lineCount + supplemental.count,
-                        raw: recognition.raw + "\n[底部复检]\n" + additional,
+                        lineCount: recognition.lineCount + merged.appended,
+                        raw: recognition.raw + "\n[底部复检]",
                         rejected: recognition.rejected,
-                        backend: recognition.backend)
+                        backend: recognition.backend,
+                        spatialLines: merged.positions)
                 }
             }
         }
@@ -958,7 +964,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
 
     /// Lower 21% of entire frame; includes bottom edge missed by legacy ROIs.
     private func recognizeBottom(_ buffer: CVPixelBuffer, using snapshot: Snapshot,
-                                 geometry: GameCaptureGeometry) -> String {
+                                 geometry: GameCaptureGeometry) -> BottomRecognition {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.minimumTextHeight = 0.003
@@ -978,11 +984,20 @@ final class DirectGameCapture: NSObject, ObservableObject,
                     language: snapshot.language) else { return nil }
                 return (best.text, obs.boundingBox)
             }
-            return candidates.sorted { a, b in
+            let ordered = candidates.sorted { a, b in
                 abs(a.1.midY - b.1.midY) < 0.025
                     ? a.1.minX < b.1.minX : a.1.midY > b.1.midY
-            }.map(\.0).joined(separator: "\n")
-        } catch { return "" }
+            }
+            let lines = ordered.map { entry in
+                GamePiPSceneText(original: entry.0, translated: "",
+                                 x: Double(entry.1.minX), y: Double(entry.1.minY),
+                                 width: Double(entry.1.width),
+                                 height: Double(entry.1.height))
+            }
+            return BottomRecognition(
+                text: ordered.map(\.0).joined(separator: "\n"),
+                lines: lines)
+        } catch { return BottomRecognition(text: "", lines: []) }
     }
 
     private func recognize(_ buffer: CVPixelBuffer, using snapshot: Snapshot,
