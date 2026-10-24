@@ -107,6 +107,7 @@ enum GamePiPLayout: String, Codable, CaseIterable, Identifiable {
     // Preserve old raw cases, so saved v3.3.1 preferences still decode.
     case compact, standard, learning
     case multiBilingual, denseChinese, menuPages
+    case fullBilingual, fullChinese, spatialMenu
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -116,6 +117,9 @@ enum GamePiPLayout: String, Codable, CaseIterable, Identifiable {
         case .multiBilingual: return "多行双语"
         case .denseChinese: return "中文高密度"
         case .menuPages: return "菜单分页"
+        case .fullBilingual: return "满窗双语阅读"
+        case .fullChinese: return "满窗中文阅读"
+        case .spatialMenu: return "原位菜单阅读"
         }
     }
 }
@@ -197,10 +201,10 @@ final class GameLingoStore: ObservableObject {
         performance = stored?.performance ?? .balanced
         provider = stored?.provider ?? .offline
         endpoint = stored?.endpoint ?? GameTranslationEndpoint()
-        autoplay = stored?.autoplay ?? true
+        autoplay = stored?.autoplay ?? false
         playbackSeconds = stored?.playbackSeconds ?? 5.0
         readAloud = stored?.readAloud ?? false
-        pipLayout = stored?.pipLayout ?? .standard
+        pipLayout = stored?.pipLayout ?? .fullBilingual
         subtitleMode = stored?.subtitleMode ?? .bilingual
         fontScale = stored?.fontScale
             ?? (UserDefaults.standard.object(forKey: "pip.subtitle.scale") as? Double)
