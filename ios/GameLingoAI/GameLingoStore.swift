@@ -26,13 +26,17 @@ struct GameOCRBox: Codable, Equatable {
 /// Persisted as an optional profile field to avoid breaking existing saves.
 enum GameOCREngine: String, Codable, CaseIterable, Identifiable {
     case vision
+    case paddleHybrid
+    // Preserve decoding old saved profiles; never select or load Google OCR.
     case mlkitJapanese
 
+    static var allCases: [GameOCREngine] { [.vision, .paddleHybrid] }
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .vision: return "Apple Vision（默认）"
-        case .mlkitJapanese: return "Google ML Kit 日语（实验）"
+        case .vision: return "Apple Vision · 多语言实时"
+        case .paddleHybrid: return "Vision + PaddleOCR · 智能增强"
+        case .mlkitJapanese: return "旧 Google 配置（已弃用）"
         }
     }
 }
@@ -43,7 +47,9 @@ struct GameProfile: Codable, Identifiable, Equatable {
     var language: String = "auto"
     // Old profiles decode without this field; Vision remains the default.
     var experimentalOCR: GameOCREngine? = nil
-    var selectedOCR: GameOCREngine { experimentalOCR ?? .vision }
+    var selectedOCR: GameOCREngine {
+        experimentalOCR == .mlkitJapanese ? .vision : (experimentalOCR ?? .vision)
+    }
     var region: GameOCRBox = .dialogue                 // portrait / old profiles
     var landscapeRegion: GameOCRBox? = nil             // optional, for migration
     var rotation: GameScreenRotation? = nil            // nil = automatic
