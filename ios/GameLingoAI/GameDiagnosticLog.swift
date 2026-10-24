@@ -26,7 +26,8 @@ final class GameDiagnosticLog {
                            "capture_interrupted", "ocr_sample", "pipeline_skip", "translation_failure",
                            "translation_complete", "diagnostic_export",
                            "startup_vision", "startup_translation", "startup_ready",
-                           "first_ocr", "first_translation", "pip_startup"])
+                           "first_ocr", "first_translation", "first_stable_ocr",
+                           "first_source_resolved", "pip_startup"])
         guard allowed.contains(name) else { return }
         queue.async {
             if name == "ocr_sample" {
@@ -52,6 +53,7 @@ final class GameDiagnosticLog {
                              "cold_vision_ms", "cold_translation_ms", "cold_total_ms",
                              "context_source_uses",
                              "language_state", "first_ocr_ms", "first_translation_ms",
+                             "first_stable_ocr_ms", "first_source_ms", "source_context",
                              "pip_start_ms", "pip_result", "accurate_suppressed"]
             let clean = metrics.filter { accepted.contains($0.key) }
                 .mapValues { max(0, min($0, 600_000)) }
