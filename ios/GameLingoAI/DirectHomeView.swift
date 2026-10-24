@@ -22,6 +22,8 @@ struct DirectHomeView: View {
         case preferences = "偏好"
     }
 
+    @State private var exportedDiagnosticURL: URL?
+    @State private var diagnosticStatus = ""
     @State private var tab = 0
     @State private var configSection: ConfigSection = .scan
     @State private var profileDraft = GameProfile(name: "默认游戏")
@@ -440,6 +442,37 @@ struct DirectHomeView: View {
                     Label("查看 OCR 乱码诊断与原文／中文对照", systemImage: "text.magnifyingglass")
                         .font(.caption.bold())
                 }
+                HStack {
+                    Button {
+                        GameDiagnosticLog.shared.export { url in
+                            exportedDiagnosticURL = url
+                            diagnosticStatus = url == nil ? "日志导出失败" : "日志已准备好"
+                        }
+                    } label: {
+                        Label("生成本地故障日志", systemImage: "doc.badge.arrow.up")
+                    }
+                    .buttonStyle(.bordered)
+                    Button(role: .destructive) {
+                        GameDiagnosticLog.shared.clear {
+                            exportedDiagnosticURL = nil
+                            diagnosticStatus = "本地故障日志已清空"
+                        }
+                    } label: {
+                        Label("清空日志", systemImage: "trash")
+                    }
+                    .buttonStyle(.bordered)
+                }
+                if let exportedDiagnosticURL {
+                    ShareLink(item: exportedDiagnosticURL) {
+                        Label("分享 JSONL 故障日志", systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                if !diagnosticStatus.isEmpty {
+                    Text(diagnosticStatus).font(.caption)
+                }
+                Text("故障日志只记录时间、阶段和性能指标，不含截图、OCR 原文或翻译文字。")
+                    .font(.caption2)
                 ShareLink(item: capture.diagnostics) {
                     Label("分享诊断文本（包含最近 OCR 文字）", systemImage: "square.and.arrow.up")
                 }.buttonStyle(.bordered)
