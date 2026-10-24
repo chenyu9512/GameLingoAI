@@ -33,7 +33,8 @@ enum GameMLKitJapaneseOCR {
     /// processing and the conversion is kept on the OCR worker.
     static func recognize(_ buffer: CVPixelBuffer,
                           orientation: CGImagePropertyOrientation,
-                          normalizedRegion: CGRect) throws -> Output? {
+                          normalizedRegion: CGRect,
+                          excludedRegion: CGRect?) throws -> Output? {
         #if MLKIT_OCR
         precondition(!Thread.isMainThread, "ML Kit synchronous OCR must run off main")
         let oriented = CIImage(cvPixelBuffer: buffer)
@@ -63,7 +64,13 @@ enum GameMLKitJapaneseOCR {
         // ML Kit v2 has no comparable per-line confidence API. The caller
         // applies a fixed conservative multi-frame confirmation policy.
         let accepted = lines.compactMap { line -> String? in
-            GameOCRQuality.evaluate(line.text, confidence: 0.70, language: "ja")?.text
+            // ML Kit's crop coordinates are top-left-based, whereas our
+            // profile exclusion box is normalized bottom-left (Vision style).
+            let center = CGPoint(
+                x: roi.minX + (line.frame.midX / CGFloat(cgImage.width)) * roi.width,
+                y: roi.maxY - (line.frame.midY / CGFloat(cgImage.height)) * roi.height)
+            if excludedRegion?.contains(center) == true { return nil }
+            return GameOCRQuality.evaluate(line.text, confidence: 0.70, language: "ja")?.text
         }
         return Output(text: accepted.joined(separator: "\n"),
                       raw: raw, candidates: lines.count,
