@@ -140,12 +140,18 @@ final class DirectGameCapture: NSObject, ObservableObject,
     private var accurateRescanTotal = 0
     private var lastPaddleOCRAt: TimeInterval = 0
     private var lastPaddleMs = 0
+    private var lastAccurateAt: TimeInterval = 0
+    private var lastAccurateFingerprint: UInt64 = 0
+    private var firstOCRLogged = false
+    private var accurateSuppressed = 0
 
     // Mutable only on the main actor.
     private var stream: SCStream?
     private var pickerObserved = false
     private var captureGeneration = 0
     private var translationRevision = 0
+    private var firstTranslationLogged = false
+    private var captureStartedAt: TimeInterval = 0
     private var pendingTranslation: Task<Void, Never>?
     private var latestSubmitted = ""
     private var latestSubmittedAt: TimeInterval = 0
@@ -326,6 +332,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
                         self.retryCaptureIfAppropriate()
                     } else {
                         self.isCapturing = true
+                        self.firstTranslationLogged = false
+                        self.captureStartedAt = Date().timeIntervalSince1970
                         GameDiagnosticLog.shared.event("capture_start")
                         self.phase = "等待游戏画面"
                         self.details = "采集已经启动，正在识别游戏对白"
@@ -455,6 +463,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
             lastFrameGeometry = geometry.identity
             lastFingerprint = 0
             lastOCRAt = 0
+            lastAccurateFingerprint = 0
+            lastAccurateAt = 0
             lastBottomAt = 0
             lastBottomText = ""
             lastBottomFingerprint = 0
@@ -514,7 +524,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
 
         let startedAt = CFAbsoluteTimeGetCurrent()
         var recognition = recognize(buffer, using: snapshot,
-                                    geometry: geometry, region: region)
+                                    geometry: geometry, region: region,
+                                    fingerprint: fingerprint)
         if snapshot.bottomScan {
             let currentBottomFingerprint = frameFingerprint(
                 buffer, region: geometry.rawRegion(for: bottomRegion))
@@ -566,6 +577,12 @@ final class DirectGameCapture: NSObject, ObservableObject,
             }
         }
         let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000)
+        if !firstOCRLogged {
+            firstOCRLogged = true
+            GameDiagnosticLog.shared.event("first_ocr", metrics: [
+                "first_ocr_ms": elapsedMs
+            ])
+        }
         let latestBottomCount = lastBottomText.isEmpty ? 0 :
             lastBottomText.components(separatedBy: "\n").count
         let latestBottomMs = lastBottomDuration
@@ -604,7 +621,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
                 "configured_auto": GameLanguageSupport.isAutomatic(snapshot.language) ? 1 : 0,
                 "confidence_available": 1,
                 "rejected_lines": recognition.rejected, "bottom_ms": latestBottomMs,
-                "accurate_rescans": preciseRescans
+                "accurate_rescans": preciseRescans,
+                "accurate_suppressed": self.accurateSuppressed
             ])
         }
         guard isCurrent(frame.revision) else { return }
@@ -877,7 +895,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
     }
 
     private func recognize(_ buffer: CVPixelBuffer, using snapshot: Snapshot,
-                           geometry: GameCaptureGeometry, region: CGRect) -> Recognition {
+                           geometry: GameCaptureGeometry, region: CGRect,
+                           fingerprint: UInt64) -> Recognition {
         lastPaddleMs = 0
         // Vision first for any supported writing system. Paddle is an optional
         // on-device recognition pass only for poor Vision results.
@@ -964,6 +983,16 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let threshold = snapshot.performance == .fast ? 0.42 : 0.66
         if snapshot.performance != .battery &&
            (first.text.isEmpty || first.confidence < threshold) {
+            let now = Date().timeIntervalSince1970
+            // The same unchanged scene should not trigger expensive Accurate
+            // OCR on every low-confidence confirmation frame.
+            if fingerprint != 0 && fingerprint == lastAccurateFingerprint &&
+               now - lastAccurateAt < 2.0 {
+                accurateSuppressed += 1
+                return first
+            }
+            lastAccurateFingerprint = fingerprint
+            lastAccurateAt = now
             accurateRescanTotal += 1
             let second = pass(.accurate)
             return second.text.isEmpty ? first : second
@@ -1092,6 +1121,13 @@ final class DirectGameCapture: NSObject, ObservableObject,
                 "translation_ms": translationElapsedMs,
                 "capture_to_translation_ms": Int((Date().timeIntervalSince1970 - detectedAt) * 1000)
             ])
+            if !firstTranslationLogged {
+                firstTranslationLogged = true
+                GameDiagnosticLog.shared.event("first_translation", metrics: [
+                    "first_translation_ms": max(0, Int(
+                        (Date().timeIntervalSince1970 - captureStartedAt) * 1000))
+                ])
+            }
             phase = "双语字幕已更新"
             details = "识别 \(ocrElapsedMs)ms · 翻译 \(translationElapsedMs)ms"
             let entry = GameSubtitleLine(original: text, translated: result,
