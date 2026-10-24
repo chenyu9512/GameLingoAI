@@ -91,6 +91,7 @@ struct DirectHomeView: View {
             if state == .background { store.flushHistory() }
             if state == .active {
                 warmup.prepare(language: store.activeProfile.language,
+                               targetLanguage: store.targetLanguage,
                                offline: store.provider == .offline)
             }
         }
@@ -348,8 +349,9 @@ struct DirectHomeView: View {
                         .pickerStyle(.menu).tint(mint)
                         Image(systemName: "arrow.right").foregroundStyle(.secondary)
                         Picker("目标", selection: $store.targetLanguage) {
-                            ForEach(GameTranslationLanguages.choices, id: \.code) { item in
-                                Text(item.label).tag(item.code)
+                            ForEach(GameTranslationLanguages.choices.indices, id: \.self) { index in
+                                Text(GameTranslationLanguages.choices[index].label)
+                                    .tag(GameTranslationLanguages.choices[index].code)
                             }
                         }
                         .pickerStyle(.menu).tint(mint)
