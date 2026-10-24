@@ -24,7 +24,9 @@ final class GameDiagnosticLog {
         // Deliberately strict schema: caller-provided text never reaches disk.
         let allowed = Set(["capture_start", "capture_stop", "capture_failure",
                            "capture_interrupted", "ocr_sample", "pipeline_skip", "translation_failure",
-                           "translation_complete", "diagnostic_export"])
+                           "translation_complete", "diagnostic_export",
+                           "startup_vision", "startup_translation", "startup_ready",
+                           "first_ocr", "first_translation", "pip_startup"])
         guard allowed.contains(name) else { return }
         queue.async {
             if name == "ocr_sample" {
@@ -46,7 +48,10 @@ final class GameDiagnosticLog {
                             "sampled_out", "ocr_backend", "confidence_available",
                              "ocr_requested_backend", "ocr_paddle_available", "paddle_ms",
                              "configured_auto", "reason_code", "retry_after_ms",
-                             "provider_code", "error_domain_code", "error_code", "error_negative"]
+                             "provider_code", "error_domain_code", "error_code", "error_negative",
+                             "cold_vision_ms", "cold_translation_ms", "cold_total_ms",
+                             "language_state", "first_ocr_ms", "first_translation_ms",
+                             "pip_start_ms", "pip_result", "accurate_suppressed"]
             let clean = metrics.filter { accepted.contains($0.key) }
                 .mapValues { max(0, min($0, 600_000)) }
             let record = Record(timestamp: ISO8601DateFormatter().string(from: Date()),
