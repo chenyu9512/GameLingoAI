@@ -198,7 +198,7 @@ workflows:
 
 
   ios-universal-ocr-unsigned:
-    name: GameLingo Universal OCR - Vision + PaddleOCR - unsigned
+    name: '02 | UNIVERSAL OCR v3.7.1 (Build 16) | Vision/Paddle | unsigned'
     instance_type: mac_mini_m2
     max_build_duration: 60
     environment:
@@ -220,6 +220,9 @@ workflows:
           echo "Running Universal OCR router smoke tests"
           xcrun swiftc ios/GameLingoAI/GameOCRRouting.swift tests/universal_ocr_routing_smoke.swift -o /tmp/gamelingo-universal-smoke
           /tmp/gamelingo-universal-smoke
+          echo "Testing full-window paired PiP pagination"
+          xcrun swiftc ios/GameLingoAI/GamePiPReadingLayout.swift tests/pip_reading_smoke.swift -o /tmp/gamelingo-pip-smoke
+          /tmp/gamelingo-pip-smoke
           echo "Testing translation backoff after repeated provider failures"
           xcrun swiftc ios/GameLingoAI/GameTranslationBackoff.swift tests/translation_backoff_smoke.swift -o /tmp/gamelingo-translation-backoff-smoke
           /tmp/gamelingo-translation-backoff-smoke
@@ -228,6 +231,10 @@ workflows:
           echo "Swift syntax check (adapter's conditional compilation)"
           xcrun swiftc -frontend -parse -D PADDLE_OCR ios/GameLingoAI/GamePaddleOCR.swift
           xcrun swiftc -frontend -parse ios/GameLingoAI/GameLanguagePackView.swift
+          xcrun swiftc -frontend -parse ios/GameLingoAI/GameStartupWarmup.swift
+          xcrun swiftc -frontend -parse -D DIRECT_CAPTURE ios/GameLingoAI/FloatingSubtitleController.swift
+          xcrun swiftc -frontend -parse ios/GameLingoAI/GamePiPFrameRenderer.swift
+          xcrun swiftc -frontend -parse -D DIRECT_CAPTURE ios/GameLingoAI/DirectHomeView.swift
           xcrun swiftc -frontend -parse -D DIRECT_CAPTURE -D PADDLE_OCR ios/GameLingoAI/DirectGameCapture.swift
       - name: Fetch official PP-OCRv6 Small recognition weights
         script: |
@@ -292,12 +299,21 @@ workflows:
           test ! -d "$APP/PlugIns"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist" | grep -q '^3.7.0$'
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist" | grep -q '^3.7.1
           mkdir -p "$CM_BUILD_DIR/artifacts/Payload"
           cp -R "$APP" "$CM_BUILD_DIR/artifacts/Payload/GameLingoAI.app"
           cd "$CM_BUILD_DIR/artifacts"
-          /usr/bin/zip -qr GameLingoAI-Universal-OCR-unsigned.ipa Payload
+          /usr/bin/zip -qr GameLingoAI-UniversalOCR-v3.7.1-b16-unsigned.ipa Payload
           rm -rf Payload
     artifacts:
-      - artifacts/GameLingoAI-Universal-OCR-unsigned.ipa
+      - artifacts/GameLingoAI-UniversalOCR-v3.7.1-b16-unsigned.ipa
+      - artifacts/xcodebuild-universal.log
+
+          mkdir -p "$CM_BUILD_DIR/artifacts/Payload"
+          cp -R "$APP" "$CM_BUILD_DIR/artifacts/Payload/GameLingoAI.app"
+          cd "$CM_BUILD_DIR/artifacts"
+          /usr/bin/zip -qr GameLingoAI-UniversalOCR-v3.7.1-b16-unsigned.ipa Payload
+          rm -rf Payload
+    artifacts:
+      - artifacts/GameLingoAI-UniversalOCR-v3.7.1-b16-unsigned.ipa
       - artifacts/xcodebuild-universal.log
