@@ -51,6 +51,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     private var readinessSubscribed = false
     private var startAfterFirstFrame = false
     private var pendingStartChecks = 0
+    private var pipStartRequestedAt: CFTimeInterval = 0
     private var lastCaptureTime: TimeInterval = 0
     private var lastMeasuredCaptureTime: TimeInterval = 0
     private var latencySamples: [(Date, Int)] = []
@@ -308,6 +309,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         // primer is no longer valid.
         startAfterFirstFrame = true
         pendingStartChecks = 0
+        pipStartRequestedAt = CACurrentMediaTime()
         status = "正在准备首帧字幕…"
         renderFrame()
     }
@@ -449,6 +451,10 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         guard pendingStartChecks <= 12 else {
             startAfterFirstFrame = false
             status = "PiP 首帧已就绪但系统暂不允许开启，请保持预览可见后重试"
+            GameDiagnosticLog.shared.event("pip_startup", metrics: [
+                "pip_result": 2,
+                "pip_start_ms": max(0, Int((CACurrentMediaTime() - pipStartRequestedAt) * 1000))
+            ])
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
@@ -464,6 +470,10 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         isActive = true
         status = "同屏字幕运行中：现在可以切换回游戏"
+        GameDiagnosticLog.shared.event("pip_startup", metrics: [
+            "pip_result": 1,
+            "pip_start_ms": max(0, Int((CACurrentMediaTime() - pipStartRequestedAt) * 1000))
+        ])
         renderFrame()
         beginFrameTimer()
         speakCurrentPage()
@@ -474,6 +484,10 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         startAfterFirstFrame = false
         isActive = false
         status = "画中画启动失败：\(error.localizedDescription)"
+        GameDiagnosticLog.shared.event("pip_startup", metrics: [
+            "pip_result": 3,
+            "pip_start_ms": max(0, Int((CACurrentMediaTime() - pipStartRequestedAt) * 1000))
+        ])
     }
 
     func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
