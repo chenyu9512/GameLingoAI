@@ -144,6 +144,13 @@ struct DirectHomeView: View {
             announce("悬浮窗已开启，请授予屏幕采集权限")
             capture.start()
         }
+        .onChange(of: capture.phase) { _, phase in
+            if ["启动失败", "屏幕授权失败", "采集连接失败", "本机翻译失败", "在线翻译失败"].contains(phase) {
+                announce("\(phase)：\(capture.details)", error: true)
+            } else if phase == "等待游戏画面" {
+                announce("已连接屏幕，正在等待可识别文字")
+            }
+        }
         .onChange(of: overlay.launchFailed) { _, failed in
             guard failed && awaitingPiPForCapture else { return }
             awaitingPiPForCapture = false
@@ -457,15 +464,24 @@ struct DirectHomeView: View {
                 HStack(spacing: 10) {
                     Button {
                         overlay.setBilingual(
-                            original: "おかえりなさい。今日はいい天気ですね。",
-                            translated: "欢迎回来。今天天气真不错。")
+                            original: "Welcome back!",
+                            translated: store.targetLanguage == "zh-Hans"
+                                ? "欢迎回来！" : (store.targetLanguage == "ja"
+                                ? "おかえり！" : (store.targetLanguage == "ko"
+                                ? "돌아온 걸 환영해!" : "Welcome back!")))
+                        announce("已写入双语排版测试内容（非真实游戏 OCR）")
                     } label: {
                         Label("双语测试", systemImage: "text.bubble")
                             .frame(maxWidth: .infinity)
                     }.buttonStyle(.bordered)
                     Button {
-                        if overlay.isActive { overlay.stop() }
-                        else { overlay.start() }
+                        if overlay.isActive {
+                            overlay.stop()
+                            announce("已请求关闭悬浮窗")
+                        } else {
+                            overlay.start()
+                            announce("已请求系统开启悬浮窗")
+                        }
                     } label: {
                         Label(overlay.isActive ? "关闭小窗" : "开启小窗",
                               systemImage: "rectangle.on.rectangle")
@@ -499,12 +515,12 @@ struct DirectHomeView: View {
             }
 
             panel {
-                sectionTitle("最新对白 · 原文 / 中文", icon: "character.bubble")
+                sectionTitle("最新识别 · 原文 / 译文", icon: "character.bubble")
                 Text(capture.original.isEmpty ? "等待识别游戏原文…" : capture.original)
                     .font(.subheadline).foregroundStyle(mint)
                     .textSelection(.enabled)
                 Divider().overlay(.white.opacity(0.1))
-                Text(capture.latest.isEmpty ? "等待中文字幕…" : capture.latest)
+                Text(capture.latest.isEmpty ? "等待目标语言译文…" : capture.latest)
                     .font(.system(size: 19, weight: .semibold))
                     .textSelection(.enabled)
             }
@@ -612,6 +628,8 @@ struct DirectHomeView: View {
                 HStack {
                     Button {
                         capture.requestFullScreenScan()
+                        announce(capture.isCapturing ? "已安排整屏扫描，请返回目标画面" :
+                                 "需要先启动屏幕采集", error: !capture.isCapturing)
                     } label: {
                         Label("返回游戏后扫描", systemImage: "viewfinder")
                     }.buttonStyle(.bordered)
@@ -642,6 +660,8 @@ struct DirectHomeView: View {
                 HStack {
                     Button {
                         capture.requestFullScreenScan()
+                        announce(capture.isCapturing ? "已安排整屏扫描，请返回目标画面" :
+                                 "需要先启动屏幕采集", error: !capture.isCapturing)
                     } label: {
                         Label("返回游戏后重新扫描", systemImage: "arrow.clockwise")
                     }.buttonStyle(.borderedProminent).tint(mint)
@@ -892,7 +912,7 @@ struct DirectHomeView: View {
             if configSection == .terms {
             panel {
                 sectionTitle("游戏专用术语表", icon: "text.book.closed")
-                Text("原文=中文；每行一条。完全匹配时优先使用术语译文。")
+                Text("自定义词条目前以简体中文为目标；使用其他目标语言时不会套用这组译文。")
                     .font(.caption).foregroundStyle(.white.opacity(0.7))
                 TextEditor(text: $profileDraft.glossary)
                     .frame(height: 140)
