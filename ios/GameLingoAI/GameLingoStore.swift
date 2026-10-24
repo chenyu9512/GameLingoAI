@@ -206,6 +206,16 @@ final class GameLingoStore: ObservableObject {
         readAloud = stored?.readAloud ?? false
         pipLayout = stored?.pipLayout ?? .fullBilingual
         subtitleMode = stored?.subtitleMode ?? .bilingual
+        // One-time 3.7.1 migration: replace the old scrolling default with
+        // static full-window paired reading. Preserve other custom layouts.
+        let readingMigrationKey = "direct.fullPage.migrated.3_7_1"
+        if !UserDefaults.standard.bool(forKey: readingMigrationKey) {
+            if pipLayout == .standard {
+                pipLayout = .fullBilingual
+                autoplay = false
+            }
+            UserDefaults.standard.set(true, forKey: readingMigrationKey)
+        }
         fontScale = stored?.fontScale
             ?? (UserDefaults.standard.object(forKey: "pip.subtitle.scale") as? Double)
             ?? 1.0
