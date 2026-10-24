@@ -206,6 +206,11 @@ final class GameLingoStore: ObservableObject {
         readAloud = stored?.readAloud ?? false
         pipLayout = stored?.pipLayout ?? .fullBilingual
         subtitleMode = stored?.subtitleMode ?? .bilingual
+        fontScale = stored?.fontScale
+            ?? (UserDefaults.standard.object(forKey: "pip.subtitle.scale") as? Double)
+            ?? 1.0
+        history = stored?.history ?? []
+        onboardingComplete = stored?.onboardingComplete ?? false
         // One-time 3.7.1 migration: replace the old scrolling default with
         // static full-window paired reading. Preserve other custom layouts.
         var shouldPersistReadingMigration = false
@@ -218,11 +223,6 @@ final class GameLingoStore: ObservableObject {
             }
             UserDefaults.standard.set(true, forKey: readingMigrationKey)
         }
-        fontScale = stored?.fontScale
-            ?? (UserDefaults.standard.object(forKey: "pip.subtitle.scale") as? Double)
-            ?? 1.0
-        history = stored?.history ?? []
-        onboardingComplete = stored?.onboardingComplete ?? false
         if !profiles.contains(where: { $0.id == activeID }), let first = profiles.first {
             activeID = first.id
         }
