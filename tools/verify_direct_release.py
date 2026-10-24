@@ -262,9 +262,9 @@ checks = {
         "'CODE_SIGN_ENTITLEMENTS':'' if DIRECT" in generator,
     "full-display background capture declaration":
         "screen-capture" in plist.get("UIBackgroundModes", []),
-    "v3.5.2 release version and build":
-        "'MARKETING_VERSION':'3.5.2' if DIRECT" in generator
-        and "'CURRENT_PROJECT_VERSION':'12' if DIRECT" in generator,
+    "v3.5.3 release version and build":
+        "'MARKETING_VERSION':'3.5.3' if DIRECT" in generator
+        and "'CURRENT_PROJECT_VERSION':'14' if DIRECT" in generator,
     "default game auto source and legacy migration":
         'var language: String = "auto"' in models
         and 'direct.autoSource.migrated.3_5_2' in models,
@@ -329,4 +329,4 @@ for label, valid in checks.items():
     print(("OK  " if valid else "FAIL") + label)
 if not all(checks.values()):
     raise SystemExit("Direct release preflight failed")
-print("PASS: GameLingo Direct 3.5.2 auto-source, low-latency OCR and PiP preflight")
+print("PASS: GameLingo Direct 3.5.3 translation safety, auto-source and PiP preflight")
