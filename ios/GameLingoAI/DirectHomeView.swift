@@ -419,12 +419,16 @@ struct DirectHomeView: View {
                 HStack(spacing: 6) {
                     metric("\(capture.ocrElapsedMs)ms", "OCR")
                     metric("\(capture.translationElapsedMs)ms", "翻译耗时")
-                    metric("\(Int(capture.ocrConfidence * 100))%", "OCR 置信度")
+                    metric(capture.ocrConfidenceEstimated ? "—" :
+                        "\(Int(capture.ocrConfidence * 100))%",
+                        capture.ocrConfidenceEstimated ? "ML Kit 不提供置信度" : "OCR 置信度")
                 }
                 if !capture.lastError.isEmpty {
                     Text("最近错误：" + capture.lastError)
                         .font(.caption).foregroundStyle(.orange)
                 }
+                Text("当前 OCR 引擎：\(capture.activeOCRName)")
+                    .font(.caption).foregroundStyle(mint)
                 Text("OCR 检测到 \(capture.lastOCRCandidates) 行 · 过滤 \(capture.rejectedOCRLines) 行")
                 Text("采集→OCR 开始 \(capture.queueWaitMs)ms · OCR \(capture.ocrElapsedMs)ms · 翻译 \(capture.translationElapsedMs)ms")
                     .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.75))
@@ -670,6 +674,21 @@ struct DirectHomeView: View {
                     Text("俄语").tag("ru")
                     Text("葡萄牙语").tag("pt")
                 }.pickerStyle(.menu)
+                #if MLKIT_OCR
+                Picker("游戏对白 OCR 引擎", selection: Binding(
+                    get: { profileDraft.selectedOCR },
+                    set: { profileDraft.experimentalOCR = $0 })) {
+                    ForEach(GameOCREngine.allCases) { engine in
+                        Text(engine.title).tag(engine)
+                    }
+                }.pickerStyle(.menu)
+                Text(profileDraft.selectedOCR == .mlkitJapanese
+                    ? (profileDraft.language.hasPrefix("ja")
+                        ? "实验：日语对白使用 ML Kit；底部补扫及整屏菜单仍用 Apple Vision。离线翻译与 PiP 不变。"
+                        : "ML Kit 日语仅在固定日语时启用；当前自动/非日语模式将使用 Apple Vision，避免语言识别退化。")
+                    : "Apple Vision：使用原来的自动多语言 OCR。")
+                    .font(.caption2).foregroundStyle(.white.opacity(0.7))
+                #endif
                 Text("自动模式可识别不同文字的源语言，误判时可以改为固定语言；不会自动下载所有翻译包。")
                     .font(.caption2).foregroundStyle(.white.opacity(0.7))
                 TextField("自定义 BCP-47 语言代码（auto = 自动）", text: $profileDraft.language)
