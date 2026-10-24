@@ -69,6 +69,8 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     private var piPStartupRetryCycles = 0
     private var pipStartRequestedAt: CFTimeInterval = 0
     private var lastCaptureTime: TimeInterval = 0
+    private var renderDurationSamples: [Int] = []
+    private var lastPiPPerformanceAt: CFTimeInterval = 0
     private var lastMeasuredCaptureTime: TimeInterval = 0
     private var latencySamples: [(Date, Int)] = []
     // The requested default is bilingual: game original above, Chinese below.
@@ -511,6 +513,28 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         frameRenderer.render(next) { [weak self] generation, buffer, elapsed in
             guard let self, generation == self.renderGeneration else { return }
             self.renderElapsedMs = Int(elapsed.rounded())
+            self.renderDurationSamples.append(self.renderElapsedMs)
+            if self.renderDurationSamples.count > 40 {
+                self.renderDurationSamples.removeFirst()
+            }
+            let now = CACurrentMediaTime()
+            if now - self.lastPiPPerformanceAt >= 10.0 {
+                self.lastPiPPerformanceAt = now
+                let values = self.renderDurationSamples.sorted()
+                let mid = values.isEmpty ? 0 : values[(values.count - 1) / 2]
+                let slow = values.isEmpty ? 0 :
+                    values[Int(Double(values.count - 1) * 0.95)]
+                #if DIRECT_CAPTURE
+                GameDiagnosticLog.shared.event("pip_sample", metrics: [
+                    "pip_render_ms": self.renderElapsedMs,
+                    "pip_render_p50": mid,
+                    "pip_render_p95": slow,
+                    "pip_frames": self.outputFrameCount,
+                    "pip_backpressure": self.backpressureCount,
+                    "pip_safe_mode": self.protectedFromSelfCapture ? 1 : 0
+                ])
+                #endif
+            }
             guard let buffer else {
                 self.isPreparing = false
                 self.launchFailed = true
