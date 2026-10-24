@@ -42,8 +42,8 @@ struct GameLanguagePackView: View {
             Text("选择原文语言，目标固定为简体中文。语言包由 iOS 安装在本机。")
                 .font(.subheadline).foregroundStyle(.secondary)
             Picker("源语言", selection: $source) {
-                ForEach(options, id: \.1) { item in
-                    Text(item.0).tag(item.1)
+                ForEach(options.indices, id: \.self) { index in
+                    Text(options[index].0).tag(options[index].1)
                 }
             }
             .pickerStyle(.menu)
