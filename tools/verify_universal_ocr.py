@@ -16,12 +16,19 @@ routing = read("ios/GameLingoAI/GameOCRRouting.swift")
 podfile = read("Podfile")
 workflow = read("codemagic.yaml")
 fetcher = read("tools/fetch_paddle_rec_model.sh")
+warmup = read("ios/GameLingoAI/GameStartupWarmup.swift")
+pip = read("ios/GameLingoAI/FloatingSubtitleController.swift")
+renderer = read("ios/GameLingoAI/GamePiPFrameRenderer.swift")
+layout = read("ios/GameLingoAI/GamePiPReadingLayout.swift")
+diagnostics = read("ios/GameLingoAI/GameDiagnosticLog.swift")
+page_test = read("tests/pip_reading_smoke.swift")
 
 checks = {
     "isolated universal branch build flag":
         "GAMELINGO_ENABLE_PADDLE" in generator
         and "'DIRECT_CAPTURE PADDLE_OCR'" in generator,
-    "v3.7 build 15": "'CURRENT_PROJECT_VERSION':'15'" in generator,
+    "v3.7.1 build 16": "'MARKETING_VERSION':'3.7.1'" in generator
+        and "'CURRENT_PROJECT_VERSION':'16'" in generator,
     "Google ML Kit removed":
         "GoogleMLKit" not in podfile and "MLKIT_OCR" not in generator
         and not Path("ios/GameLingoAI/GameMLKitJapaneseOCR.swift").exists(),
@@ -44,6 +51,41 @@ checks = {
         "let paddleDurationMs = lastPaddleMs" in capture
         and '"paddle_ms": paddleDurationMs' in capture
         and '"paddle_ms": lastPaddleMs' not in capture,
+    "cold startup OCR and translation prewarm are compiled":
+        "GameStartupWarmup.swift" in generator and "GameStartupWarmup.swift" in project
+        and "prepareVision(language:" in warmup
+        and "LanguageAvailability().status(" in warmup
+        and "TranslationSession(installedSource:" in warmup
+        and "warmup.prepare(language:" in ui,
+    "one-tap capture waits for real PiP callback and allows fallback":
+        "beginGameTranslation()" in ui
+        and "awaitingPiPForCapture" in ui
+        and ".onChange(of: overlay.isActive)" in ui
+        and "不使用 PiP，继续授权屏幕采集" in ui,
+    "full-window reading replaces fixed-length split":
+        "GamePiPReadingLayout.swift" in generator
+        and "GamePiPReadingLayout.swift" in project
+        and "GamePiPReadingLayout.paginate(" in pip
+        and "fullBilingual" in store and "fullChinese" in store
+        and "fullBilingual" in renderer and "fullChinese" in renderer,
+    "PiP render dimensions and spatial menu OCR boxes are preserved":
+        "didTransitionToRenderSize newRenderSize:" in pip
+        and "renderWidth: Int(renderSize.width)" in pip
+        and "makePool(width: requestedWidth" in renderer
+        and "setStructuredMenuEntries" in ui
+        and "spatialMenu" in renderer,
+    "new full-window reading tests run in Codemagic":
+        "pip_reading_smoke.swift" in workflow
+        and "GamePiPReadingLayout.group(" in page_test,
+    "repeated Accurate fallback scans are rate-limited":
+        "lastAccurateFingerprint" in capture
+        and "accurateSuppressed" in capture
+        and "now - lastAccurateAt < 2.0" in capture,
+    "startup and PiP diagnostics contain no captured text":
+        '"startup_vision"' in diagnostics
+        and '"first_translation"' in diagnostics
+        and '"pip_startup"' in diagnostics
+        and '"pip_start_ms"' in diagnostics,
     "language options are multilingual":
         '("韩语", "ko")' in routing
         and '("阿拉伯语", "ar")' in routing
@@ -58,7 +100,7 @@ checks = {
         and "showDiagnostics" in ui,
     "separate new workflow and unsigned IPA":
         "ios-universal-ocr-unsigned:" in workflow
-        and "GameLingoAI-Universal-OCR-unsigned.ipa" in workflow,
+        and "GameLingoAI-UniversalOCR-v3.7.1-b16-unsigned.ipa" in workflow,
 }
 for key, ok in checks.items():
     print(("PASS " if ok else "FAIL ") + key)
