@@ -29,6 +29,8 @@ source_languages = read("ios/GameLingoAI/GameLanguageSupport.swift")
 target_test = read("tests/translation_languages_smoke.swift")
 scene_geometry = read("ios/GameLingoAI/GamePiPSceneLayout.swift")
 scene_test = read("tests/pip_scene_smoke.swift")
+small_spatial = read("ios/GameLingoAI/GameOCRSpatialMerge.swift")
+small_spatial_test = read("tests/small_ocr_spatial_smoke.swift")
 session_policy = read("ios/GameLingoAI/GameOCRSessionPolicy.swift")
 session_policy_test = read("tests/ocr_session_policy_smoke.swift")
 
@@ -36,8 +38,8 @@ checks = {
     "isolated universal branch build flag":
         "GAMELINGO_ENABLE_PADDLE" in generator
         and "'DIRECT_CAPTURE PADDLE_OCR'" in generator,
-    "v3.8.1 build 19": "'MARKETING_VERSION':'3.8.1'" in generator
-        and "'CURRENT_PROJECT_VERSION':'19'" in generator,
+    "v3.8.2 build 20": "'MARKETING_VERSION':'3.8.2'" in generator
+        and "'CURRENT_PROJECT_VERSION':'20'" in generator,
     "Google ML Kit removed":
         "GoogleMLKit" not in podfile and "MLKIT_OCR" not in generator
         and not Path("ios/GameLingoAI/GameMLKitJapaneseOCR.swift").exists(),
@@ -121,6 +123,38 @@ checks = {
         and "overlay.setSceneTranslatedLines(lines)" in ui
         and "setSceneTranslatedLines" in pip
         and "setSceneMenuPage" in pip,
+    "active PiP blocks self-recursive live video feedback":
+        "protectedFromSelfCapture" in pip
+        and 'activeLayout = safetyFallback ? "portraitSafeText" : layoutMode' in pip
+        and "sceneSourceExclusionVerified = false" in pip
+        and "sceneBuffer: isSceneLayout && !safetyFallback ? sceneFrame : nil" in pip
+        and 'frame.layout == "portraitSafeText"' in renderer
+        and "&& !overlay.isActive" in ui
+        and "capture.setScenePreview(enabled: false" in ui,
+    "small-text Accurate OCR retains spatial coordinates":
+        "GameOCRSpatialMerge.swift" in generator
+        and "GameOCRSpatialMerge.swift" in project
+        and "private var lastBottomSpatialLines" in capture
+        and "self.lastBottomSpatialLines = result.lines" in capture
+        and "GameOCRSpatialMerge.merge(" in capture
+        and "recognitionLevel = .accurate" in capture
+        and "request.minimumTextHeight = 0.004" in capture
+        and "minimumSecondaryInterval" in capture,
+    "self PiP OCR echo never directly enters translation pipeline":
+        "GameOCRSpatialMerge.excludingOwnPiPText(" in capture
+        and "setPiPEchoProtection(" in ui
+        and "currentVisibleTranslations()" in pip
+        and "excludingOwnPiPText" in small_spatial
+        and "excludingOwnPiPText" in small_spatial_test,
+    "PiP render latency and backpressure are audited":
+        '"pip_safety"' in diagnostics
+        and '"pip_sample"' in diagnostics
+        and '"pip_render_p95"' in diagnostics
+        and "renderDurationSamples" in pip,
+    "precise small-ocr position tests run in CI":
+        "tests/small_ocr_spatial_smoke.swift" in workflow
+        and "GameOCRSpatialMerge.merge(" in small_spatial_test
+        and "small_ocr_spatial_smoke.swift" in workflow,
     "portrait mapping tests enabled in Codemagic":
         "GamePiPSceneLayout.viewport(" in scene_test
         and "GamePiPSceneLayout.visible(" in scene_test
@@ -201,7 +235,7 @@ checks = {
         and "showDiagnostics" in ui,
     "separate new workflow and unsigned IPA":
         "ios-universal-ocr-unsigned:" in workflow
-        and "GameLingoAI-Universal-v3.8.1-b19-portrait-unsigned.ipa" in workflow,
+        and "GameLingoAI-Universal-v3.8.2-b20-stable-unsigned.ipa" in workflow,
 }
 for key, ok in checks.items():
     print(("PASS " if ok else "FAIL ") + key)
