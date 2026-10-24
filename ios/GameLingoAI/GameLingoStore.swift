@@ -115,23 +115,23 @@ enum GamePiPLayout: String, Codable, CaseIterable, Identifiable {
         case .standard: return "标准双语"
         case .learning: return "学习双语"
         case .multiBilingual: return "多行双语"
-        case .denseChinese: return "中文高密度"
+        case .denseChinese: return "译文高密度"
         case .menuPages: return "菜单分页"
         case .fullBilingual: return "满窗双语阅读"
-        case .fullChinese: return "满窗中文阅读"
+        case .fullChinese: return "满窗译文阅读"
         case .spatialMenu: return "原位菜单阅读"
         }
     }
 }
 
-// The requested default is ORIGINAL ON TOP / CHINESE BELOW.
+// Legacy serialized case names are kept, but target content is now user-selectable.
 enum GameSubtitleMode: String, Codable, CaseIterable, Identifiable {
     case bilingual, chinese, original
     var id: String { rawValue }
     var title: String {
         switch self {
         case .bilingual: return "双语"
-        case .chinese: return "仅中文"
+        case .chinese: return "仅译文"
         case .original: return "仅原文"
         }
     }
