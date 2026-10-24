@@ -195,3 +195,74 @@ workflows:
       - artifacts/direct-package-audit.txt
       - artifacts/compiler-errors-direct.txt
       - artifacts/xcodebuild-direct.log
+
+
+  ios-direct-mlkit-unsigned:
+    name: GameLingo Direct ML Kit Japanese OCR experiment - unsigned
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      xcode: '27.1'
+    scripts:
+      - name: Generate experimental iOS 27 app
+        script: |
+          set -e
+          python3 tools/prepare_build.py
+          GAMELINGO_DIRECT_CAPTURE=1 GAMELINGO_EXPERIMENTAL_MLKIT=1 python3 tools/build_xcodeproj.py
+          python3 tools/verify_direct_release.py
+          python3 tools/verify_mlkit_experiment.py
+          echo "Running original OCR quality smoke tests"
+          xcrun swiftc ios/GameLingoAI/GameOCRQuality.swift tests/ocr_quality_smoke.swift -o /tmp/gamelingo-ocr-smoke
+          /tmp/gamelingo-ocr-smoke
+          echo "Running automatic language smoke tests"
+          xcrun swiftc ios/GameLingoAI/GameLanguageSupport.swift tests/auto_language_smoke.swift -o /tmp/gamelingo-auto-smoke
+          /tmp/gamelingo-auto-smoke
+          echo "Swift syntax check (adapter's conditional compilation)"
+          xcrun swiftc -frontend -parse -D MLKIT_OCR ios/GameLingoAI/GameMLKitJapaneseOCR.swift
+          xcrun swiftc -frontend -parse -D DIRECT_CAPTURE -D MLKIT_OCR ios/GameLingoAI/DirectGameCapture.swift
+      - name: Install Google ML Kit Japanese model (experimental only)
+        script: |
+          set -e
+          command -v pod >/dev/null || { echo "CocoaPods is missing from this Codemagic image"; exit 1; }
+          pod install --repo-update
+          test -d GameLingoAI.xcworkspace || { echo "Pod installation did not generate workspace"; exit 1; }
+      - name: Build unsigned experimental iPhone app
+        script: |
+          set -e
+          mkdir -p "$CM_BUILD_DIR/artifacts"
+          BUILD_LOG="$CM_BUILD_DIR/artifacts/xcodebuild-mlkit.log"
+          if xcodebuild \
+            -workspace "$CM_BUILD_DIR/GameLingoAI.xcworkspace" \
+            -scheme GameLingoAI \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$CM_BUILD_DIR/Build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build > "$BUILD_LOG" 2>&1; then
+            tail -n 35 "$BUILD_LOG"
+          else
+            echo "===== ML KIT SWIFT/COCOAPODS ERRORS ====="
+            grep -n -E 'error:|could not|Unable to find|No such module|BUILD FAILED' "$BUILD_LOG" | head -n 85 || true
+            tail -n 40 "$BUILD_LOG"
+            exit 65
+          fi
+      - name: Validate and package ML Kit experimental IPA
+        script: |
+          set -e
+          APP="$CM_BUILD_DIR/Build/Build/Products/Release-iphoneos/GameLingoAI.app"
+          test -d "$APP"
+          test ! -d "$APP/PlugIns"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist" | grep -q '^3.6.0$'
+          mkdir -p "$CM_BUILD_DIR/artifacts/Payload"
+          cp -R "$APP" "$CM_BUILD_DIR/artifacts/Payload/GameLingoAI.app"
+          cd "$CM_BUILD_DIR/artifacts"
+          /usr/bin/zip -qr GameLingoAI-MLKit-Japanese-Experimental-unsigned.ipa Payload
+          rm -rf Payload
+    artifacts:
+      - artifacts/GameLingoAI-MLKit-Japanese-Experimental-unsigned.ipa
+      - artifacts/xcodebuild-mlkit.log
