@@ -11,6 +11,8 @@ final class GamePiPFrameRenderer: @unchecked Sendable {
     struct Pair {
         let original: String
         let translated: String
+        var x: Double? = nil
+        var y: Double? = nil
     }
 
     struct Frame {
@@ -21,6 +23,8 @@ final class GamePiPFrameRenderer: @unchecked Sendable {
         let fontScale: CGFloat
         let pageIndex: Int
         let pageCount: Int
+        var renderWidth: Int = 640
+        var renderHeight: Int = 360
     }
 
     private let lock = NSLock()
@@ -36,8 +40,8 @@ final class GamePiPFrameRenderer: @unchecked Sendable {
     // frames, repeated RPG prompts and user-controlled page flips.
     private var layoutCache: [String: TextLayout] = [:]
     private var lastStamp = 0.0
-    private let width = 640
-    private let height = 360
+    private var width = 640
+    private var height = 360
     private let background = CGColor(colorSpace: CGColorSpaceCreateDeviceRGB(),
                                      components: [0.035, 0.055, 0.09, 1])!
     private let accent = CGColor(colorSpace: CGColorSpaceCreateDeviceRGB(),
@@ -75,7 +79,13 @@ final class GamePiPFrameRenderer: @unchecked Sendable {
         }
     }
 
-    private func makePool() -> CVPixelBufferPool? {
+    private func makePool(width newWidth: Int, height newHeight: Int) -> CVPixelBufferPool? {
+        if width != newWidth || height != newHeight {
+            width = newWidth
+            height = newHeight
+            pool = nil
+            layoutCache.removeAll(keepingCapacity: true)
+        }
         if let pool { return pool }
         let settings: [CFString: Any] = [
             kCVPixelBufferWidthKey: width,
@@ -98,7 +108,9 @@ final class GamePiPFrameRenderer: @unchecked Sendable {
     }
 
     private func makeSample(_ frame: Frame) -> CMSampleBuffer? {
-        guard let pool = makePool() else { return nil }
+        let requestedWidth = min(960, max(320, frame.renderWidth))
+        let requestedHeight = min(640, max(200, frame.renderHeight))
+        guard let pool = makePool(width: requestedWidth, height: requestedHeight) else { return nil }
         var buffer: CVPixelBuffer?
         guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &buffer)
                 == kCVReturnSuccess, let buffer else { return nil }
@@ -121,7 +133,74 @@ final class GamePiPFrameRenderer: @unchecked Sendable {
         let entries = frame.entries.isEmpty
             ? [Pair(original: "", translated: "等待翻译…")] : frame.entries
         let count = max(1, entries.count)
-        let rowHeight = CGFloat(height - 22) / CGFloat(count)
+        let fullBilingual = frame.layout == "fullBilingual"
+        let fullChinese = frame.layout == "fullChinese"
+        let spatialMenu = frame.layout == "spatialMenu"
+        let usableHeight = CGFloat(height - 18)
+        let rowHeight = usableHeight / CGFloat(count)
+        if fullBilingual {
+            // Two flexible columns fill the whole PiP canvas on wide windows;
+            // narrow render sizes switch to vertical bilingual cells.
+            let wide = CGFloat(width) / CGFloat(height) >= 1.35
+            for (index, entry) in entries.enumerated() {
+                let top = 9 + CGFloat(index) * rowHeight
+                if wide {
+                    let column = CGFloat(width - 48) / 2
+                    draw(entry.original, context: context,
+                         rect: CGRect(x: 12, y: top, width: column, height: rowHeight - 4),
+                         color: accent, maximum: 42 * frame.fontScale,
+                         minimum: 13 * frame.fontScale, bold: false)
+                    draw(entry.translated, context: context,
+                         rect: CGRect(x: column + 36, y: top,
+                                      width: column, height: rowHeight - 4),
+                         color: white, maximum: 48 * frame.fontScale,
+                         minimum: 14 * frame.fontScale, bold: true)
+                } else {
+                    draw(entry.original, context: context,
+                         rect: CGRect(x: 13, y: top, width: CGFloat(width - 26),
+                                      height: rowHeight * 0.45),
+                         color: accent, maximum: 34 * frame.fontScale,
+                         minimum: 13 * frame.fontScale, bold: false)
+                    draw(entry.translated, context: context,
+                         rect: CGRect(x: 13, y: top + rowHeight * 0.46,
+                                      width: CGFloat(width - 26),
+                                      height: rowHeight * 0.53 - 3),
+                         color: white, maximum: 41 * frame.fontScale,
+                         minimum: 14 * frame.fontScale, bold: true)
+                }
+            }
+        } else if fullChinese {
+            for (index, entry) in entries.enumerated() {
+                draw(entry.translated, context: context,
+                     rect: CGRect(x: 13, y: 9 + CGFloat(index) * rowHeight,
+                                  width: CGFloat(width - 26), height: rowHeight - 4),
+                     color: white, maximum: 48 * frame.fontScale,
+                     minimum: 15 * frame.fontScale, bold: true)
+            }
+        } else if spatialMenu {
+            // Coordinates from full-screen OCR influence row placement and
+            // indentation; clamped to prevent overlapping rows in tiny PiP.
+            var priorTop: CGFloat = -rowHeight
+            for (index, entry) in entries.enumerated() {
+                let desired = CGFloat(1 - min(1, max(0, entry.y ?? 1 - Double(index + 1) / Double(count + 1))))
+                    * CGFloat(height - 22)
+                let top = max(priorTop + rowHeight, min(desired, CGFloat(height - 9) - rowHeight))
+                priorTop = top
+                let indent = CGFloat(min(0.75, max(0, entry.x ?? 0))) * 28
+                let sourceWidth = CGFloat(width - 44) * 0.40
+                let targetWidth = CGFloat(width - 44) * 0.59
+                draw(entry.original, context: context,
+                     rect: CGRect(x: 10 + indent, y: top,
+                                  width: sourceWidth - indent, height: rowHeight - 3),
+                     color: accent, maximum: 28 * frame.fontScale,
+                     minimum: 12 * frame.fontScale, bold: false)
+                draw(entry.translated, context: context,
+                     rect: CGRect(x: 18 + sourceWidth, y: top,
+                                  width: targetWidth, height: rowHeight - 3),
+                     color: white, maximum: 32 * frame.fontScale,
+                     minimum: 13 * frame.fontScale, bold: true)
+            }
+        } else {
         for (index, entry) in entries.enumerated() {
             let top = 11 + CGFloat(index) * rowHeight
             let left: CGFloat = 19
@@ -150,6 +229,7 @@ final class GamePiPFrameRenderer: @unchecked Sendable {
                      maximum: (count == 1 ? 61 : 34) * frame.fontScale,
                      minimum: 17 * frame.fontScale, bold: true)
             }
+        }
         }
         if frame.pageCount > 1 {
             let segment = CGFloat(width) / CGFloat(frame.pageCount)
