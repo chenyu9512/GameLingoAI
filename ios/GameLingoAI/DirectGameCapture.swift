@@ -229,6 +229,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         translationRevision += 1
         pendingTranslation = nil
         isCapturing = false
+        GameDiagnosticLog.shared.event("capture_stop")
         phase = "已停止"
         details = "屏幕采集已结束"
         old?.stopCapture { _ in }
@@ -286,6 +287,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
                     guard let self, self.captureGeneration == generation else { return }
                     if let error {
                         self.isCapturing = false
+                        GameDiagnosticLog.shared.event("capture_failure")
                         self.phase = "启动失败"
                         self.details = error.localizedDescription
                         self.lastError = error.localizedDescription
@@ -293,6 +295,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
                         self.retryCaptureIfAppropriate()
                     } else {
                         self.isCapturing = true
+                        GameDiagnosticLog.shared.event("capture_start")
                         self.phase = "等待游戏画面"
                         self.details = "采集已经启动，正在识别游戏对白"
                     }
@@ -325,6 +328,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         DispatchQueue.main.async {
             guard self.stream === stream else { return }
             self.isCapturing = false
+            GameDiagnosticLog.shared.event("capture_interrupted")
             self.phase = "采集意外停止"
             self.details = error.localizedDescription
             self.lastError = error.localizedDescription
@@ -515,6 +519,11 @@ final class DirectGameCapture: NSObject, ObservableObject,
             self.queueWaitMs = dispatchWait
             self.discardedCaptureFrames = skipped
             self.ocrConfidence = recognition.confidence
+            GameDiagnosticLog.shared.event("ocr_sample", metrics: [
+                "ocr_ms": elapsedMs, "queue_ms": dispatchWait,
+                "dropped": skipped, "confidence_pct": Int(recognition.confidence * 100),
+                "rejected_lines": recognition.rejected, "bottom_ms": latestBottomMs
+            ])
         }
         guard isCurrent(frame.revision) else { return }
         let text = recognition.text
