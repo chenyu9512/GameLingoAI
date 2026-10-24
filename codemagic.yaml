@@ -217,6 +217,9 @@ workflows:
           echo "Running automatic language smoke tests"
           xcrun swiftc ios/GameLingoAI/GameLanguageSupport.swift tests/auto_language_smoke.swift -o /tmp/gamelingo-auto-smoke
           /tmp/gamelingo-auto-smoke
+          echo "Running Universal OCR router smoke tests"
+          xcrun swiftc ios/GameLingoAI/GameOCRRouting.swift tests/universal_ocr_routing_smoke.swift -o /tmp/gamelingo-universal-smoke
+          /tmp/gamelingo-universal-smoke
           echo "Testing translation backoff after repeated provider failures"
           xcrun swiftc ios/GameLingoAI/GameTranslationBackoff.swift tests/translation_backoff_smoke.swift -o /tmp/gamelingo-translation-backoff-smoke
           /tmp/gamelingo-translation-backoff-smoke
