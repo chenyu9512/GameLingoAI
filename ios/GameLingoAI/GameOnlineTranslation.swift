@@ -88,7 +88,7 @@ enum GameAPIKeychain {
 
 enum GameOnlineTranslationError: LocalizedError {
     case invalidEndpoint, oversizedText, quotaExceeded, invalidResponse
-    case http(Int), missingKey, emptyResult, unsafeFields
+    case http(Int), missingKey, emptyResult, unsafeFields, unknownSourceLanguage
 
     var errorDescription: String? {
         switch self {
@@ -99,6 +99,7 @@ enum GameOnlineTranslationError: LocalizedError {
         case .http(let code): return "在线接口响应 HTTP \(code)"
         case .missingKey: return "此 API 需要先设置密钥"
         case .emptyResult: return "接口未返回有效译文（可能限流或语言对不支持）"
+        case .unknownSourceLanguage: return "自动检测无法确认源语言，请提供更多文字或手动选择"
         case .unsafeFields: return "API 字段名只能使用字母、数字、下划线或连接符"
         }
     }
@@ -166,6 +167,11 @@ final class GameOnlineTranslator: ObservableObject {
         try Task.checkCancellation()
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { throw GameOnlineTranslationError.emptyResult }
+        guard let source = GameLanguageSupport.resolvedSource(
+            in: value, configured: source) else {
+            throw GameOnlineTranslationError.unknownSourceLanguage
+        }
+        if source == "zh-Hans" { return value }
         if provider == .offline {
             let session = TranslationSession(
                 installedSource: Locale.Language(identifier: source),
