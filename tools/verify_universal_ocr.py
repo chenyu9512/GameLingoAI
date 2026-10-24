@@ -47,7 +47,7 @@ checks = {
     "real language pack state without fake percentages":
         "LanguageAvailability().status(" in packs
         and "try await session.prepareTranslation()" in packs
-        and "GameLanguagePackView()" in ui
+        and "GameLanguagePackView(preferredSource:" in ui
         and "下载进度由 iOS 系统弹窗显示" in packs,
     "capture action prominently visible":
         'Label("开始实时翻译"' in ui
