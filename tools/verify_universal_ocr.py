@@ -34,6 +34,16 @@ checks = {
         and not Path("ios/GameLingoAI/GameMLKitJapaneseOCR.swift").exists(),
     "Apple Vision still default and saved Google profiles migrate":
         "experimentalOCR == .mlkitJapanese ? .vision" in store,
+    "store PiP migration only after every stored property initialization":
+        "onboardingComplete = stored?.onboardingComplete ?? false" in store
+        and "if pipLayout == .standard" in store
+        and store.index("onboardingComplete = stored?.onboardingComplete ?? false")
+            < store.index("if pipLayout == .standard")
+        and store.index("history = stored?.history ?? []")
+            < store.index("if pipLayout == .standard")
+        and store.index("fontScale = stored?.fontScale")
+            < store.index("if pipLayout == .standard"),
+
     "PaddleOCR model and ONNX API included in compiled app":
         "GamePaddleOCR.swift" in generator and "GamePaddleOCR.swift" in project
         and "PaddleModels" in generator and "PaddleModels" in project
