@@ -50,6 +50,7 @@ final class GameDiagnosticLog {
                              "configured_auto", "reason_code", "retry_after_ms",
                              "provider_code", "error_domain_code", "error_code", "error_negative",
                              "cold_vision_ms", "cold_translation_ms", "cold_total_ms",
+                             "context_source_uses",
                              "language_state", "first_ocr_ms", "first_translation_ms",
                              "pip_start_ms", "pip_result", "accurate_suppressed"]
             let clean = metrics.filter { accepted.contains($0.key) }
