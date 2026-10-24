@@ -807,10 +807,16 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let running = menuInFlight
         gate.unlock()
         let recentlyDetectedDialogue = now - lastDialogueOCRAt < 1.6
+        // Background accurate scans cover small task text even when large
+        // dialogue exists. They are serialized on the utility queue and
+        // strictly rate-limited so they never become a second live OCR loop.
+        let minimumSecondaryInterval: TimeInterval =
+            recentlyDetectedDialogue ? 6.0 : 3.5
         // Pause menu OCR while our own settings screen is visible.
         // Manual scans wait until the user has returned to the game.
-        guard !visible, (!forced || ready), (forced || enoughTime), !running,
-              (forced || !recentlyDetectedDialogue) else { return }
+        guard !visible, (!forced || ready), !running,
+              (forced ? enoughTime :
+                now - lastMenuScannedAt >= minimumSecondaryInterval) else { return }
 
         let fingerprint = frameFingerprint(buffer, region: CGRect(x: 0, y: 0, width: 1, height: 1))
         gate.lock()
@@ -871,7 +877,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
                                      geometry: GameCaptureGeometry) -> [GameMenuBlock] {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
-        request.minimumTextHeight = 0.006
+        request.minimumTextHeight = 0.004
         request.usesLanguageCorrection = true
         request.regionOfInterest = CGRect(x: 0, y: 0, width: 1, height: 1)
         do {
@@ -1010,7 +1016,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = level
             request.usesLanguageCorrection = true
-            request.minimumTextHeight = 0.012
+            request.minimumTextHeight = level == .fast ? 0.009 : 0.005
             request.regionOfInterest = region
             do {
                 try GameLanguageSupport.setup(request, language: snapshot.language)
