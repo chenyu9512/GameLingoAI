@@ -570,6 +570,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
             lastBottomText.components(separatedBy: "\n").count
         let latestBottomMs = lastBottomDuration
         let preciseRescans = accurateRescanTotal
+        // Snapshot on the OCR worker before crossing to the main queue.
+        // This avoids reading mutable worker state from an escaping closure.
+        let paddleDurationMs = lastPaddleMs
         DispatchQueue.main.async {
             guard self.isCurrent(frame.revision) else { return }
             self.lastOCRRaw = recognition.raw
@@ -597,7 +600,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
                 "ocr_backend": recognition.backend == .vision ? 1 : 2,
                 "ocr_requested_backend": snapshot.ocrEngine == .vision ? 1 : 2,
                 "ocr_paddle_available": GamePaddleOCR.isAvailable ? 1 : 0,
-                "paddle_ms": lastPaddleMs,
+                "paddle_ms": paddleDurationMs,
                 "configured_auto": GameLanguageSupport.isAutomatic(snapshot.language) ? 1 : 0,
                 "confidence_available": 1,
                 "rejected_lines": recognition.rejected, "bottom_ms": latestBottomMs,
