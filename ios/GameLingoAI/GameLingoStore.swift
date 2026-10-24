@@ -156,6 +156,7 @@ final class GameLingoStore: ObservableObject {
             defaultProfile.region = .full
         }
         var restoredProfiles = stored?.profiles.isEmpty == false ? stored!.profiles : [defaultProfile]
+        var shouldPersistAutoMigration = false
         // One-time opt-in migration for the original unconfigured default game.
         // Named/customized game profiles retain their explicit language choice.
         let migrationKey = "direct.autoSource.migrated.3_5_2"
@@ -164,6 +165,7 @@ final class GameLingoStore: ObservableObject {
             where restoredProfiles[index].name == "默认游戏"
                   && restoredProfiles[index].language == "ja" {
                 restoredProfiles[index].language = "auto"
+                shouldPersistAutoMigration = true
             }
             UserDefaults.standard.set(true, forKey: migrationKey)
         }
@@ -185,6 +187,9 @@ final class GameLingoStore: ObservableObject {
         if !profiles.contains(where: { $0.id == activeID }), let first = profiles.first {
             activeID = first.id
         }
+        // Persist the migrated default immediately. Otherwise the one-time
+        // migration marker would be set but an old saved "ja" reappears next run.
+        if shouldPersistAutoMigration { persist() }
     }
 
     var activeProfile: GameProfile {
