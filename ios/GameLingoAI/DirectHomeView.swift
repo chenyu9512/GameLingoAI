@@ -141,6 +141,8 @@ struct DirectHomeView: View {
         .onChange(of: store.readAloud) { _, _ in configureOverlay() }
         .onChange(of: overlay.isActive) { _, active in
             configureOverlay()
+            capture.setPiPEchoProtection(
+                enabled: active, visibleTexts: overlay.currentVisibleTranslations())
             guard awaitingPiPForCapture && active else { return }
             awaitingPiPForCapture = false
             announce("悬浮窗已开启，请授予屏幕采集权限")
@@ -175,6 +177,9 @@ struct DirectHomeView: View {
                 original: item.original, translated: item.translated,
                 capturedAt: item.timestamp.timeIntervalSince1970
                     - Double(item.elapsedMs) / 1000.0)
+            capture.setPiPEchoProtection(
+                enabled: overlay.isActive,
+                visibleTexts: overlay.currentVisibleTranslations())
         }
         .onReceive(menuCatalog.$currentPage) { page in
             overlay.setStructuredMenuEntries(page?.blocks ?? [])
