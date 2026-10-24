@@ -138,7 +138,7 @@ final class GameOnlineTranslator: ObservableObject {
     private init() {}
 
     func test(provider: GameTranslationProvider,
-              endpoint: GameTranslationEndpoint, target: String = "en") async -> Bool {
+              endpoint: GameTranslationEndpoint, target: String) async -> Bool {
         isTesting = true
         lastTestResult = "连接测试中：仅发送一条测试短句"
         defer { isTesting = false }
@@ -164,7 +164,7 @@ final class GameOnlineTranslator: ObservableObject {
     }
 
     func translate(_ text: String, source: String,
-                   target: String = "zh-Hans",
+                   target: String,
                    provider: GameTranslationProvider,
                    endpoint: GameTranslationEndpoint,
                    allowCache: Bool = true) async throws -> String {
