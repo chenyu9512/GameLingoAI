@@ -6,6 +6,7 @@ import Translation
 @available(iOS 27.0, *)
 @MainActor
 struct GameLanguagePackView: View {
+    var preferredSource = "ja"
     @State private var source = "ja"
     @State private var manualLanguage = ""
     @State private var isAdvanced = false
@@ -95,7 +96,12 @@ struct GameLanguagePackView: View {
             Text("下载进度由 iOS 系统弹窗显示。这里使用真实状态和活动指示器，不伪造百分比。")
                 .font(.caption2).foregroundStyle(.secondary)
         }
-        .onAppear { Task { await refreshStatus() } }
+        .onAppear {
+            if options.contains(where: { $0.1 == preferredSource }) {
+                source = preferredSource
+            }
+            Task { await refreshStatus() }
+        }
         .onChange(of: source) { _, _ in
             lastError = ""
             availability = nil
