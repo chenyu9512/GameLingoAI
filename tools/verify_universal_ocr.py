@@ -22,13 +22,15 @@ renderer = read("ios/GameLingoAI/GamePiPFrameRenderer.swift")
 layout = read("ios/GameLingoAI/GamePiPReadingLayout.swift")
 diagnostics = read("ios/GameLingoAI/GameDiagnosticLog.swift")
 page_test = read("tests/pip_reading_smoke.swift")
+session_policy = read("ios/GameLingoAI/GameOCRSessionPolicy.swift")
+session_policy_test = read("tests/ocr_session_policy_smoke.swift")
 
 checks = {
     "isolated universal branch build flag":
         "GAMELINGO_ENABLE_PADDLE" in generator
         and "'DIRECT_CAPTURE PADDLE_OCR'" in generator,
-    "v3.7.1 build 16": "'MARKETING_VERSION':'3.7.1'" in generator
-        and "'CURRENT_PROJECT_VERSION':'16'" in generator,
+    "v3.7.2 build 17": "'MARKETING_VERSION':'3.7.2'" in generator
+        and "'CURRENT_PROJECT_VERSION':'17'" in generator,
     "Google ML Kit removed":
         "GoogleMLKit" not in podfile and "MLKIT_OCR" not in generator
         and not Path("ios/GameLingoAI/GameMLKitJapaneseOCR.swift").exists(),
@@ -87,10 +89,22 @@ checks = {
     "new full-window reading tests run in Codemagic":
         "pip_reading_smoke.swift" in workflow
         and "GamePiPReadingLayout.group(" in page_test,
-    "repeated Accurate fallback scans are rate-limited":
-        "lastAccurateFingerprint" in capture
-        and "accurateSuppressed" in capture
-        and "now - lastAccurateAt < 2.0" in capture,
+    "animated scene Accurate OCR has a global recovery budget":
+        "GameOCRSessionPolicy.swift" in generator
+        and "GameOCRSessionPolicy.swift" in project
+        and "GameOCRRecoveryPolicy.shouldRecover(" in capture
+        and "globalMinimum" in session_policy
+        and "text == priorText" in session_policy
+        and "accurateSuppressed" in capture,
+    "autolanguage Han-only fallback requires reliable recent context":
+        "GameAutoSourceContext" in session_policy
+        and "Self.isHanOnly(text)" in session_policy
+        and "sourceContext.resolve(" in capture
+        and "sourceContext.reset()" in capture
+        and "context_source_uses" in capture,
+    "new OCR policy tests run in Codemagic":
+        "ocr_session_policy_smoke.swift" in workflow
+        and "OCRSessionPolicySmoke" in session_policy_test,
     "startup and PiP diagnostics contain no captured text":
         '"startup_vision"' in diagnostics
         and '"first_translation"' in diagnostics
@@ -110,7 +124,7 @@ checks = {
         and "showDiagnostics" in ui,
     "separate new workflow and unsigned IPA":
         "ios-universal-ocr-unsigned:" in workflow
-        and "GameLingoAI-UniversalOCR-v3.7.1-b16-unsigned.ipa" in workflow,
+        and "GameLingoAI-UniversalOCR-v3.7.2-b17-unsigned.ipa" in workflow,
 }
 for key, ok in checks.items():
     print(("PASS " if ok else "FAIL ") + key)
