@@ -8,6 +8,7 @@ final class GameDiagnosticLog {
     private let maximumBytes = 512_000
     private let directory: URL
     private var lastMetricAt: TimeInterval = 0
+    private var lastDecisionAt: [Int: TimeInterval] = [:]
 
     private init() {
         let root = FileManager.default.urls(for: .applicationSupportDirectory,
@@ -22,7 +23,7 @@ final class GameDiagnosticLog {
     func event(_ name: String, metrics: [String: Int] = [:]) {
         // Deliberately strict schema: caller-provided text never reaches disk.
         let allowed = Set(["capture_start", "capture_stop", "capture_failure",
-                           "capture_interrupted", "ocr_sample", "translation_failure",
+                           "capture_interrupted", "ocr_sample", "pipeline_skip", "translation_failure",
                            "translation_complete", "diagnostic_export"])
         guard allowed.contains(name) else { return }
         queue.async {
@@ -31,10 +32,21 @@ final class GameDiagnosticLog {
                 guard now - self.lastMetricAt >= 5 else { return }
                 self.lastMetricAt = now
             }
+            if name == "pipeline_skip" {
+                // Diagnostics stay bounded even when OCR processes many frames.
+                // Sample independently by reason so a later failure isn't hidden.
+                let now = Date().timeIntervalSince1970
+                let reason = metrics["reason_code"] ?? 0
+                guard now - (self.lastDecisionAt[reason] ?? 0) >= 5 else { return }
+                self.lastDecisionAt[reason] = now
+            }
             let accepted = ["ocr_ms", "queue_ms", "dropped", "confidence_pct",
                             "rejected_lines", "bottom_ms", "translation_ms",
                             "capture_to_translation_ms", "failure_count", "accurate_rescans",
-                            "sampled_out", "ocr_backend", "confidence_available"]
+                            "sampled_out", "ocr_backend", "confidence_available",
+                             "ocr_requested_backend", "ocr_mlkit_eligible",
+                             "configured_auto", "reason_code", "retry_after_ms",
+                             "provider_code", "error_domain_code", "error_code", "error_negative"]
             let clean = metrics.filter { accepted.contains($0.key) }
                 .mapValues { max(0, min($0, 600_000)) }
             let record = Record(timestamp: ISO8601DateFormatter().string(from: Date()),
@@ -64,6 +76,7 @@ final class GameDiagnosticLog {
             try? FileManager.default.removeItem(at: self.active)
             try? FileManager.default.removeItem(at: self.previous)
             self.lastMetricAt = 0
+            self.lastDecisionAt.removeAll()
             DispatchQueue.main.async { completion() }
         }
     }
