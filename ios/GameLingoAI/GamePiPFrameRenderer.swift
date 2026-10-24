@@ -297,7 +297,19 @@ final class GamePiPFrameRenderer: @unchecked Sendable {
                               y: extent.minY + crop.y * extent.height,
                               width: crop.width * extent.width,
                               height: crop.height * extent.height)
-        guard let still = imageContext.createCGImage(image, from: cropRect) else { return }
+        // Downsample using Core Image before allocating a CGImage. Without
+        // this, two full-resolution game screenshots per second would create
+        // unnecessary memory pressure on older iPhones.
+        let scale = min(CGFloat(width) / cropRect.width,
+                        CGFloat(height) / cropRect.height)
+        let scaled = image.cropped(to: cropRect)
+            .transformed(by: CGAffineTransform(translationX: -cropRect.minX,
+                                               y: -cropRect.minY))
+            .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let scaledRect = CGRect(x: 0, y: 0,
+                                width: cropRect.width * scale,
+                                height: cropRect.height * scale)
+        guard let still = imageContext.createCGImage(scaled, from: scaledRect) else { return }
         let canvas = GamePiPSceneLayout.canvasRect(
             width: Double(width), height: Double(height),
             sourceAspect: Double(cropRect.width / cropRect.height))
