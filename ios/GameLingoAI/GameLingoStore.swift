@@ -26,7 +26,7 @@ struct GameOCRBox: Codable, Equatable {
 struct GameProfile: Codable, Identifiable, Equatable {
     var id = UUID()
     var name: String
-    var language: String = "ja"
+    var language: String = "auto"
     var region: GameOCRBox = .dialogue                 // portrait / old profiles
     var landscapeRegion: GameOCRBox? = nil             // optional, for migration
     var rotation: GameScreenRotation? = nil            // nil = automatic
@@ -151,11 +151,23 @@ final class GameLingoStore: ObservableObject {
             .flatMap { try? JSONDecoder().decode(Saved.self, from: $0) }
         // Preserve source-language and scan-area choices from the working 2.2 build.
         var defaultProfile = GameProfile(name: "默认游戏")
-        defaultProfile.language = UserDefaults.standard.string(forKey: "direct.sourceLanguage") ?? "ja"
+        defaultProfile.language = UserDefaults.standard.string(forKey: "direct.sourceLanguage") ?? "auto"
         if UserDefaults.standard.string(forKey: "direct.scanArea") == "full" {
             defaultProfile.region = .full
         }
-        profiles = stored?.profiles.isEmpty == false ? stored!.profiles : [defaultProfile]
+        var restoredProfiles = stored?.profiles.isEmpty == false ? stored!.profiles : [defaultProfile]
+        // One-time opt-in migration for the original unconfigured default game.
+        // Named/customized game profiles retain their explicit language choice.
+        let migrationKey = "direct.autoSource.migrated.3_5_2"
+        if !UserDefaults.standard.bool(forKey: migrationKey) {
+            for index in restoredProfiles.indices
+            where restoredProfiles[index].name == "默认游戏"
+                  && restoredProfiles[index].language == "ja" {
+                restoredProfiles[index].language = "auto"
+            }
+            UserDefaults.standard.set(true, forKey: migrationKey)
+        }
+        profiles = restoredProfiles
         activeID = stored?.activeID ?? defaultProfile.id
         performance = stored?.performance ?? .balanced
         provider = stored?.provider ?? .offline
