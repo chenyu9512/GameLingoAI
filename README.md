@@ -1,61 +1,55 @@
-# GameLingoAI · Universal OCR 3.7.2
+# GameLingo AI · Universal Screen Translator
 
-**当前分支：`feature/universal-ocr-ui-language` · v3.7.2 (Build 17) · 开发测试版**
+**3.8.0 Beta 1 · Build 18 · iOS 27 开发版**
 
-> Vision + PaddleOCR 混合识别、多语言、离线翻译、满窗 PiP、首次启动预热。本版尚待 Codemagic Xcode 编译和 iPhone 真机验收。**不要把本分支当成 `main` 稳定发布。**
+> 当前分支：`feature/universal-translation-3.8-beta`。由 Universal OCR v3.7.2 独立分支演进；旧开发分支和 `main` 不受本次修改影响。本版尚未完成 Codemagic 完整编译及 iPhone 真机验收，不能当成正式稳定版。
 
-| 项目 | 当前设置 |
+GameLingo AI 使用 iPhone 自带的屏幕捕获与 Apple Vision OCR 识别游戏或其他屏幕内容，然后通过用户配置的翻译服务输出目标语言。可选择 Vision + PaddleOCR（Vision 检测文字位置、Paddle 按需增强识别），并通过系统画中画显示译文。
+
+## 一眼查看当前版本
+
+| 项目 | 当前值 |
 | --- | --- |
-| GitHub 分支 | `feature/universal-ocr-ui-language` |
-| App 版本 | **3.7.2（Build 17）** |
-| OCR 引擎 | Apple Vision（默认） / Vision + PaddleOCR（按需增强） |
-| 翻译 | Apple 本机离线；在线服务仅在用户明确配置启用后使用 |
+| App 版本 | **3.8.0（Build 18）Beta 1** |
+| 开发分支 | `feature/universal-translation-3.8-beta` |
 | Codemagic 工作流 | `ios-universal-ocr-unsigned` |
-| 构建产物（若成功） | `GameLingoAI-UniversalOCR-v3.7.2-b17-unsigned.ipa` |
-| 当前验收状态 | 源码开发完成，待 Codemagic 与真机验证 |
+| 预期产物 | `GameLingoAI-Universal-v3.8.0-b18-beta-unsigned.ipa` |
+| OCR | Apple Vision / Vision + PaddleOCR 混合增强 |
+| 翻译 | Apple Translation（默认本机）；第三方在线服务需要用户明确启用 |
+| PiP | 系统画中画，支持满窗译文/双语布局 |
+| 本版状态 | **已提交源码，待完整 Xcode 编译与真机验证** |
 
-## 3.7.2 重点修复（真机日志驱动）
+## 3.8.0 Beta 1 的重点改动
 
-- **解决 Accurate 复检过密：** 对动画画面加入全局 OCR 精确复检间隔；相同候选文本优先交给多帧确认，而不是重复加载 Accurate。
-- **减少自动语言遗漏：** 只有当前游戏近期明确识别出日语或中文后，才允许纯汉字短对白继承该语言；混合字母、跨游戏或过期上下文不做推断。
-- **增强会话诊断：** 重新开始采集时重新记录首次 OCR；追加基于上下文解决语言的计数，后续可对照等待时间和 OCR 复检次数。
-- **真机证据：** 参考新日志 2026-10-24 的 16 条 OCR 采样、70 次累计 Accurate 复检和多次自动语言不确定事件。源码修复不等于已验证设备延迟下降。
+**识别引擎切换**：从游戏配置页选 Vision 或 Vision + PaddleOCR 后直接保存、下帧生效。界面分别显示「已选择的 OCR 引擎」、「本帧实际采用的识别器」与 Paddle 模型状态，不再因为一次 Vision 结果就误显示引擎被切回。快速性能模式下，混合增强允许低频处理特别难辨的文本，避免完全被禁用。
 
-[3.7.2 诊断和修复说明](docs/RELEASE_AUDIT_3_7_2.md)
+**首次开启 PiP**：进入首页先准备内联 PiP 预览；首次请求如果短暂不允许，自动重试一次；渲染失败、超时或系统拒绝都会结束“正在准备”的状态，显示具体原因和重新开启/跳过 PiP 的入口。PiP 启动成功后才申请系统屏幕采集权限，用户也可以选择不使用小窗继续采集。系统是否允许 PiP 仍由 iOS 控制。
 
-## 新版重点
+**明确按钮反馈**：主操作、引擎切换、语言切换、保存配置、菜单扫描、截图翻译和 PiP 操作显示状态、操作反馈或错误说明。部分操作提供轻触震动反馈，不再把「已点击」误当成「已成功」。
 
-- **冷启动预热：** 首页打开后用固定测试画面预热 Vision，检查当前语言对是否安装，已安装时尝试固定短句离线翻译预热。不会自动下载语言包或发送游戏文字到在线服务。
-- **更少的重复识别：** 相同画面低置信度情况下，对 Vision Accurate 复检加 2 秒的限频；保留 OCR 多帧确认和 PaddleOCR 按需增强。
-- **满窗 PiP：** 满窗双语、满窗中文、原位菜单阅读模式。原文和中文成对分页；窗口变小时调整内容密度，而非不断滚动长文本。历史排版模式仍可使用。
-- **一键启动：** 首页一次操作准备 PiP，收到成功回调后再走系统屏幕采集授权；PiP 无法使用时可手动跳过小窗继续采集。
-- **诊断：** 新增 Vision / 翻译预热、首次识别、首次字幕、PiP 启动时延和被限频的 Accurate 次数，不存储截图或译文内容。
+**通用多语言**：原文语言可以自动检测或手动指定；目标语言可以选择常见语言，默认根据设备语言偏好，而不是暗中固定日语。实时字幕、整屏菜单、截图翻译、离线语言资源和语音朗读跟随选择的目标语言。OCR 可识别语言与翻译框架/第三方服务支持的语言对不完全相同，离线语言对需要系统实际已安装。
 
-**本版没有新增任何快捷指令、桌面长按快捷操作或轻点背面触发功能。** App 内原有的游戏截图翻译依旧保留。
+**离线隐私**：屏幕画面不发送到在线服务；用户主动启用外部翻译提供商时，只按提供商接口发送相关 OCR 文本。App 诊断主要存储时延、状态和错误码，不存储游戏截图。
 
-## 如何构建和安装
+## 构建与安装
 
-1. 在 Codemagic 连接仓库 `chenyu9512/GameLingoAI`，选择分支 **`feature/universal-ocr-ui-language`**。
-2. 运行工作流 **`ios-universal-ocr-unsigned`**，Xcode 27.1 环境。
-3. 工作流会生成 Xcode 工程、执行静态审计与 Swift 冒烟测试、下载官方 PP-OCRv6 Small Recognition ONNX 模型、安装 CocoaPods，再尝试构建。
-4. 构建成功后从 Artifacts 下载 **`GameLingoAI-UniversalOCR-v3.7.2-b17-unsigned.ipa`**。
-5. 使用 SideStore 等工具重签名并侧载到 iPhone。产物是**未签名 IPA**，不能直接点击安装。
+1. 在 Codemagic 中选择分支 `feature/universal-translation-3.8-beta`。
+2. 运行 **`ios-universal-ocr-unsigned`** 工作流（Xcode 27.1）。
+3. 工作流生成 iOS 工程、运行静态审计与 Swift 冒烟测试、获取 PaddleOCR 模型、安装依赖并编译。
+4. **只有完整构建成功后**才可从 Artifacts 中获取 `GameLingoAI-Universal-v3.8.0-b18-beta-unsigned.ipa`。
+5. 这是未签名 IPA，需要通过 SideStore 等方式重新签名后安装；不能直接作为 App Store 发行包。
 
-## 使用步骤
+## 使用
 
-1. 打开 App，查看首页的预热状态；若显示离线语言包未安装，在“离线语言资源”中交给 iOS 安装。
-2. 在游戏配置中设置源语言；遇到自动识别不准，可指定日语、英语、韩语或其他 Vision 可识别语言。
-3. 在首页点击 **「一键开始游戏翻译」**。默认尝试开启 PiP，成功后出现系统屏幕采集授权；请按系统提示完成授权。
-4. 根据阅读习惯选择 **「满窗双语阅读」** 或 **「满窗中文阅读」**。默认静态显示完整当前页，可手动翻页；需要时才启用自动播放。
-5. 翻译大型菜单时使用「整屏菜单扫描」；也可以选「原位菜单阅读」把游戏菜单的识别坐标近似应用到 PiP 排版。
-6. 延迟、卡顿或文字异常时，导出「运行诊断」JSONL，并附上 Codemagic 构建日志或截图。
+打开 App 后从首页选择「原文：自动识别 / 指定语言」及「目标语言」，必要时到语言资源面板安装对应的本机翻译语言对。可在游戏配置中选择 OCR 引擎，选择后立即应用；其他识别区域、词库设置仍由保存按钮提交。点击「开始实时翻译」后等待 PiP 实际开启、系统提示授权屏幕采集，再切回游戏。
 
-## 限制
+如果窗口第一次未弹出，查看状态栏的明确原因并点击「重新请求悬浮窗」；也可以选择跳过 PiP，只使用 App 内的完整文字结果。系统 PiP 的位置和外部尺寸不是 App 可以强制指定的。
 
-- 首次 Vision/Translation 模型加载、系统 PiP 创建和屏幕采集权限均由 iOS 管理。预热有助于减少等待，但不能承诺固定毫秒延迟。
-- OCR 可识别语言与 Apple 离线翻译的语言对支持范围不完全相同。未安装的系统翻译包需要用户单独安装。
-- PaddleOCR 仅对 Vision 识别到的困难文本框提供第二次识别，**不是完整独立 OCR 检测替代**。
-- PiP 的悬浮位置、外部窗口大小和跨 App 生命周期归系统控制；本应用优化的是**小窗内部**的文字布局，不会任意覆盖整个游戏或修改游戏文件。
-- 本仓库没有因这次源码提交而自动获得 App Store 审核通过或真机性能达标认证。
+## 相关说明
 
-[3.7.2 完整改动、验收清单](docs/RELEASE_AUDIT_3_7_1.md) · [Universal OCR 基础说明](docs/UNIVERSAL_OCR.md) · [返回 main 维护线](https://github.com/chenyu9512/GameLingoAI/tree/main)
+- [3.8 Beta 变更和验收清单](docs/RELEASE_AUDIT_3_8_0.md)
+- [3.7.2 历史性能修复](docs/RELEASE_AUDIT_3_7_2.md)
+- [返回原 Universal OCR 3.7.2 分支](https://github.com/chenyu9512/GameLingoAI/tree/feature/universal-ocr-ui-language)
+- [main 稳定维护线](https://github.com/chenyu9512/GameLingoAI/tree/main)
+
+**没有实现**：绕过 iOS 屏幕捕获授权、任意覆盖游戏文字、把 PiP 强制放在指定坐标、后台无限制执行、无需安装的任意语言对离线翻译。本次不加入快捷指令。
