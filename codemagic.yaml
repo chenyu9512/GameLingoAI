@@ -74,6 +74,9 @@ workflows:
           echo "Checking automatic Vision language selection and local source detection"
           xcrun swiftc ios/GameLingoAI/GameLanguageSupport.swift tests/auto_language_smoke.swift -o /tmp/gamelingo-auto-language-smoke
           /tmp/gamelingo-auto-language-smoke
+          echo "Testing language stability and translation failure backoff"
+          xcrun swiftc ios/GameLingoAI/GameTranslationSafety.swift tests/translation_safety_smoke.swift -o /tmp/gamelingo-translation-safety-smoke
+          /tmp/gamelingo-translation-safety-smoke
           echo "Running Japanese OCR smoke tests on build Mac"
           xcrun swiftc ios/GameLingoAI/GameOCRQuality.swift tests/ocr_quality_smoke.swift -o /tmp/gamelingo-ocr-smoke
           /tmp/gamelingo-ocr-smoke
@@ -86,6 +89,7 @@ workflows:
             ios/GameLingoAI/GameGlossaryLibrary.swift \
             ios/GameLingoAI/GameGlossaryLibraryView.swift \
             ios/GameLingoAI/GameLanguageSupport.swift \
+            ios/GameLingoAI/GameTranslationSafety.swift \
             ios/GameLingoAI/GameOCRQuality.swift \
             ios/GameLingoAI/GameRPGDictionary.swift \
             ios/GameLingoAI/GameRPGDictionaryView.swift \
