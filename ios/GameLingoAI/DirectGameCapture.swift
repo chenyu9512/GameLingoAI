@@ -94,6 +94,12 @@ final class DirectGameCapture: NSObject, ObservableObject,
     // Protected by gate. At most one pending frame replaces stale frames.
     private var pendingFrame: CapturedFrame?
     private var droppedFrames = 0
+    // ScreenCaptureKit's minimumFrameInterval is unavailable on iOS.
+    // Limit accepted frames in our callback instead; protect these fields
+    // with gate so a profile change resets sampling on its next frame.
+    private var lastIngressAt: TimeInterval = 0
+    private var lastIngressRevision = -1
+    private var sampledOutFrames = 0
     private var ocrWorkerRunning = false
     private var frameRevision = 0
     private var lastAcceptedAt: TimeInterval = 0
@@ -285,13 +291,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
 
         let configuration = SCStreamConfiguration()
         configuration.capturesAudio = false
-        // Limit high-frequency screen capture independently of expensive OCR.
-        gate.lock()
-        let selectedPerformance = config.performance
-        gate.unlock()
-        let captureFPS: Int32 = selectedPerformance == .fast ? 10 :
-            (selectedPerformance == .balanced ? 6 : 3)
-        configuration.minimumFrameInterval = CMTime(value: 1, timescale: captureFPS)
+        // iOS does not expose SCStreamConfiguration.minimumFrameInterval.
+        // Ingress sampling is handled inside didOutputSampleBuffer without
+        // allocating or queuing discarded frames.
         let next = SCStream(filter: filter, configuration: configuration, delegate: self)
         do {
             try next.addStreamOutput(self, type: .screen, sampleHandlerQueue: captureQueue)
@@ -357,13 +359,30 @@ final class DirectGameCapture: NSObject, ObservableObject,
                 of type: SCStreamOutputType) {
         guard type == .screen, sampleBuffer.isValid,
               let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        // CVPixelBuffer is retained by CapturedFrame while the worker is active.
-        // The callback replaces the pending item and returns immediately.
+        // Keep the stream callback cheap. On iOS we sample incoming frames
+        // at 10/6/3 FPS (fast/balanced/battery), independently of the OCR
+        // minimumInterval. The first frame after each configuration change
+        // always passes; no stale frame queue is introduced.
+        let uptime = ProcessInfo.processInfo.systemUptime
         gate.lock()
+        let revision = frameRevision
+        if lastIngressRevision != revision {
+            lastIngressRevision = revision
+            lastIngressAt = 0
+        }
+        let fps: Double = config.performance == .fast ? 10 :
+            (config.performance == .balanced ? 6 : 3)
+        if lastIngressAt > 0 && uptime - lastIngressAt < 1.0 / fps {
+            sampledOutFrames += 1
+            gate.unlock()
+            return
+        }
+        lastIngressAt = uptime
+        // CVPixelBuffer is retained only for the newest accepted frame.
         if pendingFrame != nil { droppedFrames += 1 }
         pendingFrame = CapturedFrame(buffer: buffer, snapshot: config,
                                      capturedAt: Date().timeIntervalSince1970,
-                                     revision: frameRevision)
+                                     revision: revision)
         let shouldLaunch = !ocrWorkerRunning
         if shouldLaunch { ocrWorkerRunning = true }
         gate.unlock()
