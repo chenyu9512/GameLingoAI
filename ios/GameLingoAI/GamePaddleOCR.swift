@@ -111,7 +111,7 @@ enum GamePaddleOCR {
                 }
                 previous = index
             }
-            return (resultText, characters == 0 ? 0 : confidence / Double(characters))
+            return (resultText, characters == 0 ? 0 : min(1, max(0, confidence / Double(characters))))
         }
 
         func run(buffer: CVPixelBuffer, orientation: CGImagePropertyOrientation,
