@@ -180,10 +180,13 @@ struct DirectHomeView: View {
             do {
                 let output = try await session.translate(screenshotText).targetText
                 let mapping = GameRPGDictionary.glossary(for: store.activeProfile)
-                screenshotResult = mapping[screenshotText] ?? output
-                screenshotStatus = "截图离线翻译完成"
+                screenshotResult = store.targetLanguage == "zh-Hans"
+                    ? (mapping[screenshotText] ?? output) : output
+                screenshotStatus = "截图翻译完成 · \(GameTranslationLanguages.label(for: store.targetLanguage))"
+                announce(screenshotStatus)
             } catch {
                 screenshotStatus = "截图翻译失败：" + error.localizedDescription
+                announce(screenshotStatus, error: true)
             }
         }
         .sheet(isPresented: $showingOnboarding) { onboardingSheet }
@@ -341,6 +344,7 @@ struct DirectHomeView: View {
                         .font(.caption).foregroundStyle(.orange)
                     Button("不使用 PiP，继续授权屏幕采集") {
                         awaitingPiPForCapture = false
+                        announce("已跳过 PiP，正在申请屏幕采集")
                         capture.start()
                     }.buttonStyle(.bordered)
                 }
@@ -762,7 +766,7 @@ struct DirectHomeView: View {
                 #endif
                 Text("自动识别不预设日语。误判时可以选择任意已支持的源语言；离线语言资源按需安装。")
                     .font(.caption2).foregroundStyle(.white.opacity(0.7))
-                TextField("自定义 BCP-47 语言代码（auto = 自动）", text: $profileDraft.language)
+                TextField("自定义 BCP-47 源语言代码（auto = 自动）", text: $profileDraft.language)
                     .textFieldStyle(.roundedBorder)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -952,9 +956,9 @@ struct DirectHomeView: View {
                     Text("\(store.playbackSeconds, specifier: "%.1f")秒")
                         .font(.caption.monospacedDigit())
                 }
-                Toggle("朗读中文译文（关闭时不影响游戏声音）",
+                Toggle("朗读目标语言译文（关闭时不影响游戏声音）",
                        isOn: $store.readAloud).tint(mint)
-                Text("默认双语：上方游戏原文，下方中文译文；字号可在实时页调整。")
+                Text("原文与目标语言双语对照；字号可在实时页调整。")
                     .font(.caption2).foregroundStyle(.white.opacity(0.7))
             }
 
@@ -1000,8 +1004,9 @@ struct DirectHomeView: View {
                 }
                 store.saveProfile(profileDraft)
                 updateCaptureConfiguration()
+                announce("配置已保存并应用：\(profileDraft.name)")
             } label: {
-                Label("保存游戏配置", systemImage: "square.and.arrow.down")
+                Label("保存并应用配置", systemImage: "square.and.arrow.down")
                     .font(.headline)
                     .frame(maxWidth: .infinity).padding(.vertical, 13)
             }
@@ -1080,10 +1085,11 @@ struct DirectHomeView: View {
                 Text(screenshotText).font(.subheadline).foregroundStyle(mint)
                     .textSelection(.enabled)
                 Button("在本机翻译截图") {
+                    screenshotStatus = "正在翻译截图…"
                     screenshotConfiguration = TranslationSession.Configuration(
                         source: GameLanguageSupport.isAutomatic(store.activeProfile.language)
                             ? nil : Locale.Language(identifier: store.activeProfile.language),
-                        target: Locale.Language(identifier: "zh-Hans"))
+                        target: Locale.Language(identifier: store.targetLanguage))
                 }.buttonStyle(.borderedProminent).tint(mint)
             }
             if !screenshotResult.isEmpty {
@@ -1262,18 +1268,34 @@ struct DirectHomeView: View {
     }
 
     private func beginGameTranslation() {
+        if awaitingPiPForCapture {
+            awaitingPiPForCapture = false
+            overlay.stop()
+            announce("已取消此次启动")
+            return
+        }
         if capture.isCapturing {
             awaitingPiPForCapture = false
             capture.stop()
             if overlay.isActive { overlay.stop() }
+            announce("屏幕采集已停止")
             return
         }
         if autoOpenPiP && !overlay.isActive {
             awaitingPiPForCapture = true
+            announce("正在准备悬浮窗，等待系统确认")
             overlay.start()
         } else {
+            announce("正在请求系统屏幕采集授权")
             capture.start()
         }
+    }
+
+    private func announce(_ message: String, error: Bool = false) {
+        actionFeedback = message
+        actionFeedbackIsError = error
+        if error { UINotificationFeedbackGenerator().notificationOccurred(.error) }
+        else { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
     }
 
     private func updateCaptureConfiguration() {
@@ -1286,6 +1308,7 @@ struct DirectHomeView: View {
                                   readAloud: store.readAloud)
         overlay.setMode(store.subtitleMode.rawValue, layout: store.pipLayout.rawValue)
         overlay.setFontScale(CGFloat(store.fontScale))
+        overlay.setSpeechLanguage(store.targetLanguage)
         syncMenuOverlay()
     }
 
