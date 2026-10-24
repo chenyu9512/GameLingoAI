@@ -34,12 +34,15 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     private struct SubtitlePage {
         let original: String
         let translated: String
+        var x: Double? = nil
+        var y: Double? = nil
     }
     private var currentOriginal = "おかえりなさい。"
     private var currentText = "欢迎回来。"
     private var pages = [SubtitlePage(original: "おかえりなさい。", translated: "欢迎回来。")]
     private var recentPairs = [SubtitlePage(original: "おかえりなさい。", translated: "欢迎回来。")]
     private var menuPairs: [SubtitlePage] = []
+    private var renderSize = CMVideoDimensions(width: 640, height: 360)
     private var pageGroups: [[SubtitlePage]] = []
     private var lastDrawAt: CFTimeInterval = 0
     private let frameRenderer = GamePiPFrameRenderer()
@@ -123,12 +126,34 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     func setMode(_ mode: String, layout: String) {
         let newMode = ["bilingual", "chinese", "original"].contains(mode) ? mode : "bilingual"
         let layouts = ["compact", "standard", "learning", "multiBilingual",
-                       "denseChinese", "menuPages"]
+                       "denseChinese", "menuPages", "fullBilingual",
+                       "fullChinese", "spatialMenu"]
         let newLayout = layouts.contains(layout) ? layout : "standard"
         guard subtitleMode != newMode || layoutMode != newLayout else { return }
         subtitleMode = newMode
         layoutMode = newLayout
         rebuildPages()
+    }
+
+    func setStructuredMenuEntries(_ blocks: [GameMenuBlock]) {
+        let next = blocks.map {
+            SubtitlePage(original: $0.original, translated: $0.chinese ?? "翻译中…",
+                         x: $0.x, y: $0.y)
+        }
+        guard menuPairs.count != next.count ||
+              zip(menuPairs, next).contains(where: {
+                  $0.0.original != $0.1.original ||
+                  $0.0.translated != $0.1.translated ||
+                  $0.0.x != $0.1.x || $0.0.y != $0.1.y
+              }) else { return }
+        menuPairs = next
+        if layoutMode == "menuPages" || layoutMode == "spatialMenu" {
+            menuRefreshTimer?.invalidate()
+            menuRefreshTimer = Timer.scheduledTimer(withTimeInterval: 0.3,
+                                                    repeats: false) { [weak self] _ in
+                self?.rebuildPages(preservePage: true)
+            }
+        }
     }
 
     func setMenuEntries(_ entries: [(String, String)]) {
@@ -208,14 +233,28 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         isGroupedLayout ? max(1, pageGroups.count) : max(1, pages.count)
     }
     private var isGroupedLayout: Bool {
-        ["multiBilingual", "denseChinese", "menuPages"].contains(layoutMode)
+        ["multiBilingual", "denseChinese", "menuPages",
+         "fullBilingual", "fullChinese", "spatialMenu"].contains(layoutMode)
     }
     private func rebuildPages(preservePage: Bool = false) {
         let previousPage = pageIndex
         pages = makeBilingualPages()
-        if layoutMode == "menuPages" {
-            pageGroups = chunk(menuPairs.isEmpty ? recentPairs.suffix(1).map { $0 } : menuPairs,
-                               count: 4)
+        if layoutMode == "menuPages" || layoutMode == "spatialMenu" {
+            let menu = menuPairs.isEmpty ? Array(recentPairs.suffix(1)) : menuPairs
+            pageGroups = chunk(menu, count: layoutMode == "spatialMenu" ? 5 : 4)
+        } else if layoutMode == "fullBilingual" || layoutMode == "fullChinese" {
+            let pairs = Array(recentPairs.suffix(12)).flatMap {
+                GamePiPReadingLayout.paginate(
+                    original: $0.original, translated: $0.translated,
+                    originalLimit: layoutMode == "fullChinese" ? 150 : 80,
+                    translatedLimit: layoutMode == "fullChinese" ? 150 : 70)
+            }
+            let groups = GamePiPReadingLayout.group(
+                pairs, maxPairs: layoutMode == "fullChinese" ? 4 : 3,
+                maxCharacters: layoutMode == "fullChinese" ? 210 : 125)
+            pageGroups = groups.map { group in
+                group.map { SubtitlePage(original: $0.original, translated: $0.translated) }
+            }
         } else if layoutMode == "denseChinese" {
             pageGroups = chunk(Array(recentPairs.suffix(20)), count: 5)
         } else if layoutMode == "multiBilingual" {
@@ -224,7 +263,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
             pageGroups = []
         }
         // Newest dialogue groups first; the saved menu starts on page 1.
-        let startingPage = layoutMode == "menuPages" ? 0 :
+        let startingPage = (layoutMode == "menuPages" || layoutMode == "spatialMenu") ? 0 :
             (isGroupedLayout ? max(0, pageGroups.count - 1) : 0)
         pageIndex = preservePage ? min(previousPage, pageCount - 1) : startingPage
         playbackPage = "\(pageIndex + 1) / \(pageCount)"
@@ -307,37 +346,10 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     // Keep the two languages in a single frame. For longer lines, display
     // consecutive paired portions rather than silently clipping the bottom.
     private func makeBilingualPages() -> [SubtitlePage] {
-        let origCount = layoutMode == "learning" ? 68 : 78
-        let chineseCount = layoutMode == "compact" ? 40 : 53
-        func split(_ source: String, at limit: Int) -> [String] {
-            let text = source.trimmingCharacters(in: .whitespacesAndNewlines)
-            if text.isEmpty { return [""] }
-            var result: [String] = []
-            var working = ""
-            for character in text {
-                working.append(character)
-                if working.count >= limit
-                    || (working.count > limit / 2
-                        && "。！？!?；;。\n".contains(character)) {
-                    result.append(working.trimmingCharacters(in: .whitespacesAndNewlines))
-                    working = ""
-                }
-            }
-            if !working.isEmpty {
-                result.append(working.trimmingCharacters(in: .whitespacesAndNewlines))
-            }
-            return result.isEmpty ? [""] : result
-        }
-
-        let sourcePages = split(currentOriginal, at: origCount)
-        let targetPages = split(currentText, at: chineseCount)
-        let count = max(sourcePages.count, targetPages.count)
-        return (0..<max(1, count)).map { index in
-            SubtitlePage(original: index < sourcePages.count ? sourcePages[index] : "",
-                         translated: index < targetPages.count ? targetPages[index] : "")
-        }
+        GamePiPReadingLayout.paginate(
+            original: currentOriginal, translated: currentText
+        ).map { SubtitlePage(original: $0.original, translated: $0.translated) }
     }
-
 
     // Only collect cheap, immutable text state on the UI thread.
     // CoreText layout and CVPixelBuffer creation occur on a serial worker.
@@ -352,7 +364,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         if isGroupedLayout && pageGroups.indices.contains(pageIndex) {
             selected = pageGroups[pageIndex].map {
                 GamePiPFrameRenderer.Pair(original: $0.original,
-                                          translated: $0.translated)
+                                          translated: $0.translated, x: $0.x, y: $0.y)
             }
         } else {
             let item = pages.indices.contains(pageIndex)
@@ -364,7 +376,8 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         let next = GamePiPFrameRenderer.Frame(
             generation: renderGeneration, entries: selected,
             layout: layoutMode, mode: subtitleMode, fontScale: fontScale,
-            pageIndex: pageIndex, pageCount: count)
+            pageIndex: pageIndex, pageCount: count,
+            renderWidth: Int(renderSize.width), renderHeight: Int(renderSize.height))
         frameRenderer.render(next) { [weak self] generation, buffer, elapsed in
             guard let self, generation == self.renderGeneration else { return }
             self.renderElapsedMs = Int(elapsed.rounded())
@@ -491,7 +504,9 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
 
     func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController,
                                     didTransitionToRenderSize newRenderSize: CMVideoDimensions) {
-        renderFrame()
+        guard newRenderSize.width > 0, newRenderSize.height > 0 else { return }
+        renderSize = newRenderSize
+        rebuildPages(preservePage: true)
     }
 
     func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController,
