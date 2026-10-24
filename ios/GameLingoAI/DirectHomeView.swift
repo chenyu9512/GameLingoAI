@@ -14,6 +14,9 @@ struct DirectHomeView: View {
     @StateObject private var menuCatalog = GameMenuCatalog.shared
     @StateObject private var glossaryLibrary = GameGlossaryLibrary.shared
     @StateObject private var overlay = FloatingSubtitleController()
+    @StateObject private var warmup = GameStartupWarmup.shared
+    @AppStorage("direct.autoOpenPiP.3_7_1") private var autoOpenPiP = true
+    @State private var awaitingPiPForCapture = false
 
     private enum ConfigSection: String, CaseIterable {
         case scan = "识别"
@@ -76,6 +79,8 @@ struct DirectHomeView: View {
             profileDraft = store.activeProfile
             updateCaptureConfiguration()
             configureOverlay()
+            warmup.prepare(language: store.activeProfile.language,
+                           offline: store.provider == .offline)
             if !store.onboardingComplete { showingOnboarding = true }
         }
         .onChange(of: scenePhase) { _, state in
@@ -86,6 +91,8 @@ struct DirectHomeView: View {
             dragonQuestNotice = ""
             profileDraft = store.activeProfile
             updateCaptureConfiguration()
+            warmup.prepare(language: store.activeProfile.language,
+                           offline: store.provider == .offline)
         }
         .onChange(of: store.profiles) { _, _ in updateCaptureConfiguration() }
         .onReceive(glossaryLibrary.$enabledByGame) { _ in
@@ -97,6 +104,8 @@ struct DirectHomeView: View {
         .onChange(of: store.provider) { _, _ in
             updateCaptureConfiguration()
             menuCatalog.cancelForProfileChange()
+            warmup.prepare(language: store.activeProfile.language,
+                           offline: store.provider == .offline)
         }
         .onChange(of: store.endpoint) { _, _ in updateCaptureConfiguration() }
         .onChange(of: store.performance) { _, _ in updateCaptureConfiguration() }
@@ -106,6 +115,11 @@ struct DirectHomeView: View {
         .onChange(of: store.autoplay) { _, _ in configureOverlay() }
         .onChange(of: store.playbackSeconds) { _, _ in configureOverlay() }
         .onChange(of: store.readAloud) { _, _ in configureOverlay() }
+        .onChange(of: overlay.isActive) { _, active in
+            guard awaitingPiPForCapture && active else { return }
+            awaitingPiPForCapture = false
+            capture.start()
+        }
         .onReceive(capture.$latestLine) { item in
             guard let item else { return }
             overlay.setBilingual(
@@ -241,8 +255,41 @@ struct DirectHomeView: View {
                     Text(capture.isCapturing ? "采集中" : "待连接")
                         .font(.caption.bold()).foregroundStyle(capture.isCapturing ? mint : .secondary)
                 }
-                DirectCapturePanel(profile: store.activeProfile, performance: store.performance)
-                Text("选择整个屏幕后返回游戏；OCR 和字幕会自动更新。")
+                Button {
+                    beginGameTranslation()
+                } label: {
+                    Label(capture.isCapturing ? "结束游戏翻译" :
+                          awaitingPiPForCapture ? "悬浮窗准备中…" : "一键开始游戏翻译",
+                          systemImage: capture.isCapturing ? "stop.circle.fill" : "play.circle.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 9)
+                }
+                .buttonStyle(.borderedProminent).tint(mint)
+                .disabled(awaitingPiPForCapture)
+                Toggle("开始时自动准备悬浮字幕", isOn: $autoOpenPiP)
+                    .font(.subheadline).tint(mint)
+                HStack {
+                    Label(warmup.status, systemImage: warmup.isPreparing ?
+                          "hourglass" : "checkmark.shield")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if warmup.isPreparing { ProgressView().controlSize(.small) }
+                }
+                Text("首次 OCR 预热：\(warmup.visionMilliseconds)ms · 首次离线翻译预热：\(warmup.translationMilliseconds)ms")
+                    .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                if awaitingPiPForCapture {
+                    Text("正在等待 iOS 开启 PiP。如果系统不允许，可先进行屏幕采集。")
+                        .font(.caption).foregroundStyle(.orange)
+                    Button("不使用 PiP，继续授权屏幕采集") {
+                        awaitingPiPForCapture = false
+                        capture.start()
+                    }.buttonStyle(.bordered)
+                }
+                DisclosureGroup("高级：分别控制采集与悬浮窗") {
+                    DirectCapturePanel(profile: store.activeProfile,
+                                       performance: store.performance)
+                }
+                Text("启动操作不会跳过 iOS 的屏幕采集授权；小窗位置由系统管理。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             statusDashboard
@@ -816,7 +863,7 @@ struct DirectHomeView: View {
                         Text(item.title).tag(item)
                     }
                 }.pickerStyle(.menu)
-                Text("多行双语显示最近几组对话；中文高密度提高容量；菜单分页从整屏清单读取内容。所有内容仍保存在 App 中。")
+                Text("满窗双语和满窗中文采用静态整页排版，菜单原位模式保留文字相对位置。切页和自动播放均可单独控制。")
                     .font(.caption2).foregroundStyle(.white.opacity(0.7))
                 Toggle("自动连续翻页", isOn: $store.autoplay).tint(mint)
                 HStack {
@@ -1135,6 +1182,21 @@ struct DirectHomeView: View {
          "pt": "葡萄牙语", "it": "意大利语", "ru": "俄语"][language] ?? language
     }
 
+    private func beginGameTranslation() {
+        if capture.isCapturing {
+            awaitingPiPForCapture = false
+            capture.stop()
+            if overlay.isActive { overlay.stop() }
+            return
+        }
+        if autoOpenPiP && !overlay.isActive {
+            awaitingPiPForCapture = true
+            overlay.start()
+        } else {
+            capture.start()
+        }
+    }
+
     private func updateCaptureConfiguration() {
         capture.configure(profile: store.activeProfile, performance: store.performance)
     }
@@ -1150,7 +1212,7 @@ struct DirectHomeView: View {
 
     private func syncMenuOverlay() {
         let contents = menuCatalog.currentPage?.blocks ?? []
-        overlay.setMenuEntries(contents.map { ($0.original, $0.chinese ?? "翻译中…") })
+        overlay.setStructuredMenuEntries(contents)
     }
 
     private func processScreenshot(_ photo: PhotosPickerItem?) async {
