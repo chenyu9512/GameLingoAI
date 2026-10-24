@@ -139,6 +139,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
     // Worker-only counter; UI and JSONL read snapshots on the main queue.
     private var accurateRescanTotal = 0
     private var lastPaddleOCRAt: TimeInterval = 0
+    private var lastPaddleMs = 0
 
     // Mutable only on the main actor.
     private var stream: SCStream?
@@ -596,6 +597,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
                 "ocr_backend": recognition.backend == .vision ? 1 : 2,
                 "ocr_requested_backend": snapshot.ocrEngine == .vision ? 1 : 2,
                 "ocr_paddle_available": GamePaddleOCR.isAvailable ? 1 : 0,
+                "paddle_ms": lastPaddleMs,
                 "configured_auto": GameLanguageSupport.isAutomatic(snapshot.language) ? 1 : 0,
                 "confidence_available": 1,
                 "rejected_lines": recognition.rejected, "bottom_ms": latestBottomMs,
@@ -873,6 +875,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
 
     private func recognize(_ buffer: CVPixelBuffer, using snapshot: Snapshot,
                            geometry: GameCaptureGeometry, region: CGRect) -> Recognition {
+        lastPaddleMs = 0
         // Vision first for any supported writing system. Paddle is an optional
         // on-device recognition pass only for poor Vision results.
         func pass(_ level: VNRequestTextRecognitionLevel) -> Recognition {
@@ -934,6 +937,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
             millisecondsSinceLast: (Date().timeIntervalSince1970 - lastPaddleOCRAt) * 1000
         ) && GamePaddleOCR.isAvailable {
             lastPaddleOCRAt = Date().timeIntervalSince1970
+            let paddleStarted = CFAbsoluteTimeGetCurrent()
+            defer { lastPaddleMs = Int((CFAbsoluteTimeGetCurrent() - paddleStarted) * 1000) }
             do {
                 if let improved = try GamePaddleOCR.recognize(
                     buffer, orientation: geometry.imageOrientation,
