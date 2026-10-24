@@ -23,10 +23,27 @@ struct GameOCRBox: Codable, Equatable {
     static let full = GameOCRBox(x: 0.02, y: 0.02, width: 0.96, height: 0.96)
 }
 
+/// Persisted as an optional profile field to avoid breaking existing saves.
+enum GameOCREngine: String, Codable, CaseIterable, Identifiable {
+    case vision
+    case mlkitJapanese
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .vision: return "Apple Vision（默认）"
+        case .mlkitJapanese: return "Google ML Kit 日语（实验）"
+        }
+    }
+}
+
 struct GameProfile: Codable, Identifiable, Equatable {
     var id = UUID()
     var name: String
     var language: String = "auto"
+    // Old profiles decode without this field; Vision remains the default.
+    var experimentalOCR: GameOCREngine? = nil
+    var selectedOCR: GameOCREngine { experimentalOCR ?? .vision }
     var region: GameOCRBox = .dialogue                 // portrait / old profiles
     var landscapeRegion: GameOCRBox? = nil             // optional, for migration
     var rotation: GameScreenRotation? = nil            // nil = automatic
