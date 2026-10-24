@@ -136,6 +136,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         rebuildPages()
     }
 
+    #if DIRECT_CAPTURE
     func setStructuredMenuEntries(_ blocks: [GameMenuBlock]) {
         let next = blocks.map {
             SubtitlePage(original: $0.original, translated: $0.chinese ?? "翻译中…",
@@ -156,6 +157,8 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
             }
         }
     }
+
+    #endif
 
     func setMenuEntries(_ entries: [(String, String)]) {
         let next = entries.map {
@@ -451,10 +454,12 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         guard pendingStartChecks <= 12 else {
             startAfterFirstFrame = false
             status = "PiP 首帧已就绪但系统暂不允许开启，请保持预览可见后重试"
+            #if DIRECT_CAPTURE
             GameDiagnosticLog.shared.event("pip_startup", metrics: [
                 "pip_result": 2,
                 "pip_start_ms": max(0, Int((CACurrentMediaTime() - pipStartRequestedAt) * 1000))
             ])
+            #endif
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
@@ -470,10 +475,12 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         isActive = true
         status = "同屏字幕运行中：现在可以切换回游戏"
+        #if DIRECT_CAPTURE
         GameDiagnosticLog.shared.event("pip_startup", metrics: [
             "pip_result": 1,
             "pip_start_ms": max(0, Int((CACurrentMediaTime() - pipStartRequestedAt) * 1000))
         ])
+        #endif
         renderFrame()
         beginFrameTimer()
         speakCurrentPage()
@@ -484,10 +491,12 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         startAfterFirstFrame = false
         isActive = false
         status = "画中画启动失败：\(error.localizedDescription)"
+        #if DIRECT_CAPTURE
         GameDiagnosticLog.shared.event("pip_startup", metrics: [
             "pip_result": 3,
             "pip_start_ms": max(0, Int((CACurrentMediaTime() - pipStartRequestedAt) * 1000))
         ])
+        #endif
     }
 
     func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
