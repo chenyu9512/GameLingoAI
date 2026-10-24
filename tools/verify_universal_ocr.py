@@ -22,6 +22,11 @@ renderer = read("ios/GameLingoAI/GamePiPFrameRenderer.swift")
 layout = read("ios/GameLingoAI/GamePiPReadingLayout.swift")
 diagnostics = read("ios/GameLingoAI/GameDiagnosticLog.swift")
 page_test = read("tests/pip_reading_smoke.swift")
+targets = read("ios/GameLingoAI/GameTranslationLanguages.swift")
+online = read("ios/GameLingoAI/GameOnlineTranslation.swift")
+menu = read("ios/GameLingoAI/GameMenuCatalog.swift")
+source_languages = read("ios/GameLingoAI/GameLanguageSupport.swift")
+target_test = read("tests/translation_languages_smoke.swift")
 session_policy = read("ios/GameLingoAI/GameOCRSessionPolicy.swift")
 session_policy_test = read("tests/ocr_session_policy_smoke.swift")
 
@@ -29,8 +34,8 @@ checks = {
     "isolated universal branch build flag":
         "GAMELINGO_ENABLE_PADDLE" in generator
         and "'DIRECT_CAPTURE PADDLE_OCR'" in generator,
-    "v3.7.2 build 17": "'MARKETING_VERSION':'3.7.2'" in generator
-        and "'CURRENT_PROJECT_VERSION':'17'" in generator,
+    "v3.8.0 build 18": "'MARKETING_VERSION':'3.8.0'" in generator
+        and "'CURRENT_PROJECT_VERSION':'18'" in generator,
     "Google ML Kit removed":
         "GoogleMLKit" not in podfile and "MLKIT_OCR" not in generator
         and not Path("ios/GameLingoAI/GameMLKitJapaneseOCR.swift").exists(),
@@ -59,6 +64,41 @@ checks = {
         "GameOCRRouting.shouldEnhance(" in capture
         and "GamePaddleOCR.recognize(" in capture
         and "let first = pass(.fast)" in capture,
+    "engine selections apply immediately and separate selected/result labels":
+        "store.selectOCREngine(engine" in ui
+        and "selectedOCRName" in ui
+        and "ocrEngineStatus" in capture
+        and "GameOCRRouting.shouldEnhance(" in capture
+        and "millisecondsSinceLast >= 3000" in routing,
+    "user target locale persists and propagates to all translators":
+        "GameTranslationLanguages.swift" in generator
+        and "GameTranslationLanguages.swift" in project
+        and "targetLanguage = stored?.targetLanguage" in store
+        and "targetLanguage: targetLanguage" in store
+        and "target: profile.targetLanguage" in capture
+        and "target: targetLanguage" in menu
+        and "target: Locale.Language(identifier: targetLanguage)" in menu
+        and "GameTranslationLanguages.apiCode(target)" in online
+        and "TranslationLanguagesSmoke" in target_test,
+    "no forced Japanese offline prewarming or pack default":
+        'isAutomatic(language) ? "ja"' not in warmup
+        and 'var preferredSource = "auto"' in packs
+        and 'targetLanguage: String' in warmup
+        and "Locale.preferredLanguages" in source_languages,
+    "startup PiP has terminal failure and retry visibility":
+        "piPStartupRetryCycles < 1" in pip
+        and "launchFailed = true" in pip
+        and ".onChange(of: overlay.launchFailed)" in ui
+        and "重新请求悬浮窗" in ui
+        and "isPreparing = false" in pip,
+    "actions have visible toasts and haptics":
+        "private func announce(" in ui
+        and "UINotificationFeedbackGenerator" in ui
+        and 'actionFeedback' in ui
+        and 'announce("配置已保存并应用' in ui,
+    "new target regression tests run in Codemagic":
+        "tests/translation_languages_smoke.swift" in workflow
+        and "GameTranslationLanguages.preferredTarget" in target_test,
     "Paddle diagnostic latency is snapshotted before main queue closure":
         "let paddleDurationMs = lastPaddleMs" in capture
         and '"paddle_ms": paddleDurationMs' in capture
@@ -132,7 +172,7 @@ checks = {
         and "showDiagnostics" in ui,
     "separate new workflow and unsigned IPA":
         "ios-universal-ocr-unsigned:" in workflow
-        and "GameLingoAI-UniversalOCR-v3.7.2-b17-unsigned.ipa" in workflow,
+        and "GameLingoAI-Universal-v3.8.0-b18-beta-unsigned.ipa" in workflow,
 }
 for key, ok in checks.items():
     print(("PASS " if ok else "FAIL ") + key)
