@@ -163,7 +163,8 @@ final class GameMenuCatalog: ObservableObject {
             let key = cacheKey(profileID: profileID, language: language,
                                source: original, provider: provider,
                                endpointID: endpointID)
-            var result = glossary[original] ?? cache[key]
+            // Never ask Translation to translate simplified Chinese into itself.
+            var result = language == "zh-Hans" ? original : (glossary[original] ?? cache[key])
             if result == nil {
                 result = before.first(where: {
                     normalized($0.original) == normalized(original)
@@ -197,6 +198,11 @@ final class GameMenuCatalog: ObservableObject {
         let unknown = prepared.compactMap { block -> String? in
             guard block.chinese == nil, seen.insert(block.original).inserted else { return nil }
             return block.original
+        }
+        if language == "und" {
+            isTranslating = false
+            status = "识别到文字，但暂不能确认源语言；可在游戏配置中选择具体语言"
+            return
         }
         if unknown.isEmpty {
             isTranslating = false
