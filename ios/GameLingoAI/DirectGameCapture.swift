@@ -1039,6 +1039,36 @@ final class DirectGameCapture: NSObject, ObservableObject,
                            revision: Int, detectedAt: TimeInterval) async {
         let started = CFAbsoluteTimeGetCurrent()
         let key = profile.provider.rawValue + "|" + profile.name + "|" + profile.language + "|" + text
+        let policyKey = profile.provider.rawValue + "|" + profile.language
+        // Only pay the availability-check cost when actual system translation
+        // is required; Chinese passthrough, glossary and cached text stay fast.
+        if profile.provider == .offline &&
+           translationNeedsModel(text, profile: profile, key: key) {
+            let status = await offlineAvailability(profile.language)
+            guard revision == translationRevision && !Task.isCancelled else { return }
+            switch status {
+            case .installed:
+                break
+            case .supported:
+                registerTranslationFailure(
+                    .languagePackMissing, profile: profile, started: started,
+                    phase: "缺少离线语言包",
+                    message: "请返回 App 按需准备 " + profile.language + " → 中文语言包")
+                return
+            case .unsupported:
+                registerTranslationFailure(
+                    .unsupportedPair, profile: profile, started: started,
+                    phase: "本机不支持此语言对",
+                    message: "系统不支持 " + profile.language + " → 中文；请手动调整识别语言")
+                return
+            @unknown default:
+                registerTranslationFailure(
+                    .unsupportedPair, profile: profile, started: started,
+                    phase: "翻译语言状态未知",
+                    message: "系统未返回可用语言包状态，请检查源语言")
+                return
+            }
+        }
         do {
             let result: String
             if profile.language == "zh-Hans" {
@@ -1098,16 +1128,16 @@ final class DirectGameCapture: NSObject, ObservableObject,
             }
             guard revision == translationRevision && !Task.isCancelled else { return }
             guard !result.isEmpty else {
-                GameDiagnosticLog.shared.event("translation_failure", metrics: ["failure_count": failures + 1])
-                phase = "空译文"
-                details = "系统没有返回翻译内容"
-                failures += 1
-                retries = min(retries + 1, 3)
+                registerTranslationFailure(
+                    .emptyResult, profile: profile, started: started,
+                    phase: "空译文", message: "系统没有返回翻译内容")
                 return
             }
             translationCache[key] = result
             if translationCache.count > 160 { translationCache.removeAll(keepingCapacity: true) }
+            translationRetry.recordSuccess(policyKey)
             retries = 0
+            lastError = ""
             lastCompleted = text
             original = text
             latest = result
@@ -1127,13 +1157,17 @@ final class DirectGameCapture: NSObject, ObservableObject,
             GameLingoStore.shared.add(entry)
         } catch {
             guard revision == translationRevision && !Task.isCancelled else { return }
-            retries = min(retries + 1, 3)
-            GameDiagnosticLog.shared.event("translation_failure", metrics: ["failure_count": failures + 1])
-            phase = profile.provider == .offline ? "本机翻译失败" : "在线翻译失败"
-            details = error.localizedDescription
-            lastError = error.localizedDescription
-            failures += 1
-            // Do not change lastCompleted, so the next stable OCR may retry.
+            if profile.provider == .offline {
+                // Models can be deleted by iOS while the app is running.
+                // Refresh next time rather than trusting an old installed flag.
+                offlineStatuses.removeValue(forKey: profile.language)
+            }
+            registerTranslationFailure(
+                .executionFailed, profile: profile, started: started,
+                phase: profile.provider == .offline ? "本机翻译失败" : "在线翻译失败",
+                message: error.localizedDescription)
+            // Keep lastCompleted unchanged so new stable OCR can retry later,
+            // after the bounded language/provider cooldown.
         }
     }
 
