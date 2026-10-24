@@ -81,6 +81,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let raw: String
         let rejected: Int
         var backend: GameOCREngine = .vision
+        var visionBoxes: [CGRect] = []
     }
 
     // ScreenCaptureKit callbacks must never perform Vision OCR synchronously.
@@ -137,6 +138,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
     private var candidateConfidence = 0.0
     // Worker-only counter; UI and JSONL read snapshots on the main queue.
     private var accurateRescanTotal = 0
+    private var lastPaddleOCRAt: TimeInterval = 0
 
     // Mutable only on the main actor.
     private var stream: SCStream?
@@ -584,9 +586,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
             self.discardedCaptureFrames = skipped
             self.sampledOutCaptureFrames = sampledOut
             self.ocrConfidence = recognition.confidence
-            self.ocrConfidenceEstimated = recognition.backend == .mlkitJapanese
-            self.activeOCRName = recognition.backend == .mlkitJapanese ?
-                "ML Kit 日语" : "Apple Vision"
+            self.ocrConfidenceEstimated = false
+            self.activeOCRName = recognition.backend == .paddleHybrid ?
+                "Vision + PaddleOCR" : "Apple Vision 多语言"
             GameDiagnosticLog.shared.event("ocr_sample", metrics: [
                 "ocr_ms": elapsedMs, "queue_ms": dispatchWait,
                 "dropped": skipped, "sampled_out": sampledOut,
@@ -594,8 +596,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
                     Int(recognition.confidence * 100) : 0,
                 "ocr_backend": recognition.backend == .vision ? 1 : 2,
                 "ocr_requested_backend": snapshot.ocrEngine == .vision ? 1 : 2,
-                "ocr_mlkit_eligible": snapshot.ocrEngine == .mlkitJapanese &&
-                    snapshot.language.hasPrefix("ja") && GameMLKitJapaneseOCR.isAvailable ? 1 : 0,
+                "ocr_paddle_available": GamePaddleOCR.isAvailable ? 1 : 0,
                 "configured_auto": GameLanguageSupport.isAutomatic(snapshot.language) ? 1 : 0,
                 "confidence_available": recognition.backend == .vision ? 1 : 0,
                 "rejected_lines": recognition.rejected, "bottom_ms": latestBottomMs,
@@ -873,34 +874,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
 
     private func recognize(_ buffer: CVPixelBuffer, using snapshot: Snapshot,
                            geometry: GameCaptureGeometry, region: CGRect) -> Recognition {
-        // Experimental ML Kit is deliberately opt-in and Japanese-only.
-        // Automatic or non-Japanese profiles keep Vision's multilingual OCR.
-        // This also preserves Vision as a no-pods fallback for regular builds.
-        if snapshot.ocrEngine == .mlkitJapanese &&
-           snapshot.language.hasPrefix("ja") &&
-           GameMLKitJapaneseOCR.isAvailable {
-            do {
-                if let output = try GameMLKitJapaneseOCR.recognize(
-                    buffer, orientation: geometry.imageOrientation,
-                    normalizedRegion: region, excludedRegion: snapshot.excluded) {
-                    // ML Kit v2 doesn't publish comparable confidence scores.
-                    // 0.65 is ONLY a two-frame stabilization policy sentinel,
-                    // never an asserted ML Kit confidence percentage.
-                    return Recognition(text: output.text,
-                                       confidence: output.text.isEmpty ? 0 : 0.65,
-                                       lineCount: output.candidates,
-                                       raw: output.raw, rejected: output.rejected,
-                                       backend: .mlkitJapanese)
-                }
-            } catch {
-                // Don't silently lose subtitles after a detector exception.
-                // Recover via the existing Vision engine for this frame.
-                DispatchQueue.main.async {
-                    self.lastError = "ML Kit OCR： " + error.localizedDescription
-                    self.failures += 1
-                }
-            }
-        }
+        // Vision first for any supported writing system. Paddle is an optional
+        // on-device recognition pass only for poor Vision results.
         func pass(_ level: VNRequestTextRecognitionLevel) -> Recognition {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = level
@@ -939,7 +914,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
                 return Recognition(text: merged, confidence: confidence,
                                    lineCount: observations.count,
                                    raw: rawLines.joined(separator: "\n"),
-                                   rejected: max(0, rawLines.count - sorted.count))
+                                   rejected: max(0, rawLines.count - sorted.count),
+                                   visionBoxes: observations.map(\.boundingBox))
             } catch {
                 DispatchQueue.main.async {
                     self.phase = "文字识别失败"
@@ -952,6 +928,29 @@ final class DirectGameCapture: NSObject, ObservableObject,
             }
         }
         let first = pass(.fast)
+        if GameOCRRouting.shouldEnhance(
+            confidence: first.confidence, candidateCount: first.visionBoxes.count,
+            mode: snapshot.ocrEngine == .paddleHybrid ? .paddleHybrid : .vision,
+            performanceFast: snapshot.performance == .fast,
+            millisecondsSinceLast: (Date().timeIntervalSince1970 - lastPaddleOCRAt) * 1000
+        ) && GamePaddleOCR.isAvailable {
+            lastPaddleOCRAt = Date().timeIntervalSince1970
+            do {
+                if let improved = try GamePaddleOCR.recognize(
+                    buffer, orientation: geometry.imageOrientation,
+                    boxes: first.visionBoxes, region: region),
+                   !improved.text.isEmpty,
+                   (first.text.isEmpty || first.confidence < 0.60) {
+                    return Recognition(text: improved.text, confidence: improved.confidence,
+                                       lineCount: improved.lines, raw: first.raw,
+                                       rejected: first.rejected, backend: .paddleHybrid)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.lastError = "PaddleOCR 增强失败，已使用 Vision：" + error.localizedDescription
+                }
+            }
+        }
         // Fast mode must not routinely run BOTH Vision models. Ambiguous
         // (but plausible) text is confirmed across frames. Only very damaged
         // text or an empty result triggers a synchronous accurate recovery.
