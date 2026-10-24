@@ -39,6 +39,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
     @Published private(set) var lastFrameAt: Date?
     @Published private(set) var failures = 0
     @Published private(set) var lastError = ""
+    @Published private(set) var detectedSourceLanguage = "待检测"
     @Published private(set) var detectedLayout: GameFrameLayout = .portrait
     @Published private(set) var screenDimensions = "等待画面"
     @Published private(set) var activeRotation: GameScreenRotation = .automatic
@@ -57,7 +58,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         var endpoint: GameTranslationEndpoint
         var bottomScan: Bool
 
-        static let initial = Snapshot(profileID: UUID(), name: "默认游戏", language: "ja",
+        static let initial = Snapshot(profileID: UUID(), name: "默认游戏", language: "auto",
                                       portraitROI: GameOCRBox.dialogue.rect,
                                       landscapeROI: GameOCRBox.landscapeDialogue.rect,
                                       rotation: .automatic,
@@ -119,6 +120,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
     // Mutable only on captureQueue.
     private var candidate = ""
     private var candidateCount = 0
+    private var candidateConfidence = 0.0
 
     // Mutable only on the main actor.
     private var stream: SCStream?
@@ -189,6 +191,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             self?.lastBottomText = ""
             self?.candidate = ""
             self?.candidateCount = 0
+            self?.candidateConfidence = 0
         }
         // Ensure no earlier profile's translation can overwrite the new one.
         translationRevision += 1
@@ -197,6 +200,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         latestSubmitted = ""
         lastCompleted = ""
         translationCache.removeAll(keepingCapacity: true)
+        detectedSourceLanguage = GameLanguageSupport.isAutomatic(profile.language) ? "待检测" : profile.language
         phase = isCapturing ? "已切换游戏设置" : "未启动"
         details = "当前游戏：" + profile.name
     }
@@ -276,6 +280,13 @@ final class DirectGameCapture: NSObject, ObservableObject,
 
         let configuration = SCStreamConfiguration()
         configuration.capturesAudio = false
+        // Limit high-frequency screen capture independently of expensive OCR.
+        gate.lock()
+        let selectedPerformance = config.performance
+        gate.unlock()
+        let captureFPS: Int32 = selectedPerformance == .fast ? 10 :
+            (selectedPerformance == .balanced ? 6 : 3)
+        configuration.minimumFrameInterval = CMTime(value: 1, timescale: captureFPS)
         let next = SCStream(filter: filter, configuration: configuration, delegate: self)
         do {
             try next.addStreamOutput(self, type: .screen, sampleHandlerQueue: captureQueue)
@@ -410,6 +421,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             lastBottomText = ""
             candidate = ""
             candidateCount = 0
+            candidateConfidence = 0
             gate.lock()
             lastMenuFingerprint = 0
             lastPageFingerprint = 0
@@ -442,7 +454,15 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let staticScene = fingerprint != 0 && fingerprint == lastFingerprint
         // Still recheck static frames periodically: failed translations may retry,
         // and the same visual frame may need new state after UI changes.
-        if staticScene && now - lastOCRAt < 3.0 {
+        // Static frames still need short-interval OCR confirmation of a
+        // previously low-confidence text candidate. Otherwise the 3-second
+        // static suppression would prevent the required 2nd/3rd observation.
+        let pendingConfirmation = candidateCount > 0 &&
+            candidateCount < GameOCRQuality.requiredStableFrames(
+                confidence: candidateConfidence,
+                fastMode: snapshot.performance == .fast)
+        let confirmationDue = pendingConfirmation && now - lastOCRAt >= 0.24
+        if staticScene && !confirmationDue && now - lastOCRAt < 3.0 {
             DispatchQueue.main.async {
                 guard self.isCurrent(frame.revision) else { return }
                 self.ignoredFrames += 1
@@ -535,20 +555,40 @@ final class DirectGameCapture: NSObject, ObservableObject,
             }
             candidate = ""
             candidateCount = 0
+            candidateConfidence = 0
             return
         }
-        if candidate == text { candidateCount += 1 }
-        else { candidate = text; candidateCount = 1 }
+        if candidate == text {
+            candidateCount += 1
+        } else {
+            candidate = text
+            candidateCount = 1
+        }
+        candidateConfidence = recognition.confidence
         // Preserve all detected dialogue text, including long and multi-line
         // Japanese scenes. Visible PiP pagination handles the presentation.
         let needed = GameOCRQuality.requiredStableFrames(confidence: recognition.confidence,
                                                         fastMode: snapshot.performance == .fast)
         guard candidateCount >= needed else { return }
         lastDialogueOCRAt = now
-
+        // Keep the original profile's OCR preference, but pass the detected
+        // source (not the sentinel "auto") into installed Translation sessions.
+        guard let resolvedSource = GameLanguageSupport.resolvedSource(
+            in: text, configured: snapshot.language) else {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isCurrent(frame.revision) else { return }
+                self.detectedSourceLanguage = "未确定"
+                self.phase = "正在判断源语言"
+                self.details = "当前文字太短或不明确，保留原文；可以在游戏配置中手动指定语言"
+            }
+            return
+        }
+        var translationProfile = snapshot
+        translationProfile.language = resolvedSource
         DispatchQueue.main.async { [weak self] in
             guard let self, self.isCurrent(frame.revision) else { return }
-            self.submit(text, profile: snapshot, detectedAt: now)
+            self.detectedSourceLanguage = resolvedSource
+            self.submit(text, profile: translationProfile, detectedAt: now)
         }
     }
 
@@ -620,6 +660,9 @@ final class DirectGameCapture: NSObject, ObservableObject,
             let textBlocks = self.recognizeFullScreen(buffer, using: snapshot,
                                                      geometry: geometry)
             let took = Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
+            let menuLanguage = GameLanguageSupport.resolvedSource(
+                in: textBlocks.map(\.original).joined(separator: "\n"),
+                configured: snapshot.language) ?? "und"
             self.gate.lock()
             let current = self.menuGeometryRevision == revision
             if current { self.menuInFlight = false }
@@ -631,7 +674,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
                 guard self.isCapturing, self.stream != nil else { return }
                 GameMenuCatalog.shared.receive(
                     textBlocks, profileID: snapshot.profileID,
-                    gameName: snapshot.name, language: snapshot.language,
+                    gameName: snapshot.name, language: menuLanguage,
                     glossary: snapshot.glossary, fingerprint: fingerprint,
                     ocrMilliseconds: took, explicitlyRequested: forced,
                     layout: geometry.layout)
@@ -817,12 +860,12 @@ final class DirectGameCapture: NSObject, ObservableObject,
             }
         }
         let first = pass(.fast)
-        // Two-stage OCR: scan cheaply first; refine *only* when characters exist.
-        // Japanese .fast OCR can be unsupported or noisy on some iOS builds.
-        // Refine only when confidence/quality requires it, keeping ordinary
-        // readable lines on the fast path.
-        if snapshot.performance != .battery,
-           (first.text.isEmpty || first.confidence < (snapshot.performance == .fast ? 0.60 : 0.66)) {
+        // Fast mode must not routinely run BOTH Vision models. Ambiguous
+        // (but plausible) text is confirmed across frames. Only very damaged
+        // text or an empty result triggers a synchronous accurate recovery.
+        let threshold = snapshot.performance == .fast ? 0.42 : 0.66
+        if snapshot.performance != .battery &&
+           (first.text.isEmpty || first.confidence < threshold) {
             let second = pass(.accurate)
             return second.text.isEmpty ? first : second
         }
@@ -856,7 +899,10 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let key = profile.provider.rawValue + "|" + profile.name + "|" + profile.language + "|" + text
         do {
             let result: String
-            if let exact = profile.glossary[text] {
+            if profile.language == "zh-Hans" {
+                // The requested target language is already present.
+                result = text
+            } else if let exact = profile.glossary[text] {
                 result = exact
             } else if let cached = translationCache[key] {
                 result = cached
