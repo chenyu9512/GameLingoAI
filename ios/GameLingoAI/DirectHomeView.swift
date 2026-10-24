@@ -145,6 +145,9 @@ struct DirectHomeView: View {
             announce("悬浮窗已开启，请授予屏幕采集权限")
             capture.start()
         }
+        .onChange(of: capture.isCapturing) { _, capturing in
+            if !capturing { overlay.clearScene() }
+        }
         .onChange(of: capture.phase) { _, phase in
             if ["启动失败", "屏幕授权失败", "采集连接失败", "本机翻译失败", "在线翻译失败"].contains(phase) {
                 announce("\(phase)：\(capture.details)", error: true)
@@ -168,8 +171,8 @@ struct DirectHomeView: View {
                     - Double(item.elapsedMs) / 1000.0)
         }
         .onReceive(menuCatalog.$currentPage) { page in
+            overlay.setStructuredMenuEntries(page?.blocks ?? [])
             overlay.setSceneMenuPage(page)
-            syncMenuOverlay()
         }
         .onChange(of: screenshot) { _, value in
             Task { await processScreenshot(value) }
