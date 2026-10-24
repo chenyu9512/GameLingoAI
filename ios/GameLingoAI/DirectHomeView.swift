@@ -157,6 +157,9 @@ struct DirectHomeView: View {
             awaitingPiPForCapture = false
             announce(overlay.status, error: true)
         }
+        .onReceive(capture.$sceneText) { lines in
+            overlay.setSceneTranslatedLines(lines)
+        }
         .onReceive(capture.$latestLine) { item in
             guard let item else { return }
             overlay.setBilingual(
@@ -164,7 +167,8 @@ struct DirectHomeView: View {
                 capturedAt: item.timestamp.timeIntervalSince1970
                     - Double(item.elapsedMs) / 1000.0)
         }
-        .onReceive(menuCatalog.$currentPage) { _ in
+        .onReceive(menuCatalog.$currentPage) { page in
+            overlay.setSceneMenuPage(page)
             syncMenuOverlay()
         }
         .onChange(of: screenshot) { _, value in
@@ -454,7 +458,15 @@ struct DirectHomeView: View {
                         .font(.caption.bold().monospaced())
                         .foregroundStyle(overlay.isActive ? mint : .orange)
                 }
-                Text("画中画预览已移至首页启动区；这里保留字幕控制和调试信息。")
+                Text("竖版画面模式显示授权采集的游戏画面，并在 OCR 位置覆盖已翻译的文字。")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Picker("PiP 画面排版", selection: $store.pipLayout) {
+                    Text("竖版 · 全画面原位翻译").tag(GamePiPLayout.portraitScene)
+                    Text("竖版 · 智能文字聚焦").tag(GamePiPLayout.portraitFocus)
+                    Text("满窗双语（备用）").tag(GamePiPLayout.fullBilingual)
+                    Text("满窗译文（备用）").tag(GamePiPLayout.fullChinese)
+                }.pickerStyle(.menu)
+                Text("竖版输出 360×640 · 画面最高约 2 帧/秒 · 系统仍决定悬浮窗实际尺寸。")
                     .font(.caption2).foregroundStyle(.secondary)
                 HStack {
                     Text("字号").font(.caption)
@@ -1364,6 +1376,16 @@ struct DirectHomeView: View {
     }
 
     private func configureOverlay() {
+        let sceneEnabled = store.pipLayout == .portraitScene ||
+            store.pipLayout == .portraitFocus
+        if sceneEnabled {
+            let pip = overlay
+            capture.setScenePreview(enabled: true) { [weak pip] buffer, orientation in
+                pip?.setSceneFrame(buffer, orientation: orientation)
+            }
+        } else {
+            capture.setScenePreview(enabled: false, handler: nil)
+        }
         overlay.configurePlayback(autoplay: store.autoplay,
                                   seconds: store.playbackSeconds,
                                   readAloud: store.readAloud)
@@ -1374,8 +1396,10 @@ struct DirectHomeView: View {
     }
 
     private func syncMenuOverlay() {
-        let contents = menuCatalog.currentPage?.blocks ?? []
+        let page = menuCatalog.currentPage
+        let contents = page?.blocks ?? []
         overlay.setStructuredMenuEntries(contents)
+        overlay.setSceneMenuPage(page)
     }
 
     private func processScreenshot(_ photo: PhotosPickerItem?) async {
