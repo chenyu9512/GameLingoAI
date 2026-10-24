@@ -235,6 +235,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         // A tab change or SwiftUI view reappearance must not restart OCR,
         // cancel a menu batch, or wipe the already translated dialogue.
         guard changed else { return }
+        sceneText = []
         GameMenuCatalog.shared.cancelForProfileChange()
         ocrQueue.async { [weak self] in
             self?.lastFingerprint = 0
@@ -692,6 +693,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         }
         guard isCurrent(frame.revision) else { return }
         let text = recognition.text
+        let stableSpatialLines = recognition.spatialLines
         guard !text.isEmpty else {
             GameDiagnosticLog.shared.event("pipeline_skip", metrics: ["reason_code": 1])
             DispatchQueue.main.async {
@@ -764,7 +766,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
             guard let self, self.isCurrent(frame.revision) else { return }
             self.detectedSourceLanguage = resolvedSource
             self.submit(text, profile: translationProfile, detectedAt: now,
-                        spatialLines: recognition.spatialLines)
+                        spatialLines: stableSpatialLines)
         }
     }
 
@@ -1106,6 +1108,17 @@ final class DirectGameCapture: NSObject, ObservableObject,
                         spatialLines: [GamePiPSceneText]) {
         let now = Date().timeIntervalSince1970
         if text == lastCompleted {
+            // Same translated text may reappear at a different screen location.
+            // Reuse the already completed translation without a new model call.
+            let lines = latest.split(separator: "\n", omittingEmptySubsequences: false)
+                .map(String.init)
+            if !latest.isEmpty && lines.count == spatialLines.count {
+                sceneText = zip(spatialLines, lines).map { source, result in
+                    var moved = source
+                    moved.translated = result
+                    return moved
+                }
+            }
             GameDiagnosticLog.shared.event("pipeline_skip", metrics: ["reason_code": 4])
             return
         }
