@@ -1,6 +1,6 @@
 # GameLingo AI · Universal Screen Translator
 
-**3.8.0 Beta 1 · Build 18 · iOS 27 开发版**
+**3.8.1 · Build 19 · iOS 27 开发版**
 
 > 当前分支：`feature/universal-translation-3.8-beta`。由 Universal OCR v3.7.2 独立分支演进；旧开发分支和 `main` 不受本次修改影响。本版尚未完成 Codemagic 完整编译及 iPhone 真机验收，不能当成正式稳定版。
 
@@ -10,14 +10,27 @@ GameLingo AI 使用 iPhone 自带的屏幕捕获与 Apple Vision OCR 识别游�
 
 | 项目 | 当前值 |
 | --- | --- |
-| App 版本 | **3.8.0（Build 18）Beta 1** |
+| App 版本 | **3.8.1（Build 19）实验版** |
 | 开发分支 | `feature/universal-translation-3.8-beta` |
 | Codemagic 工作流 | `ios-universal-ocr-unsigned` |
-| 预期产物 | `GameLingoAI-Universal-v3.8.0-b18-beta-unsigned.ipa` |
+| 预期产物 | `GameLingoAI-Universal-v3.8.1-b19-portrait-unsigned.ipa` |
 | OCR | Apple Vision / Vision + PaddleOCR 混合增强 |
 | 翻译 | Apple Translation（默认本机）；第三方在线服务需要用户明确启用 |
 | PiP | 系统画中画，支持满窗译文/双语布局 |
 | 本版状态 | **已提交源码，待完整 Xcode 编译与真机验证** |
+
+## 3.8.1：竖版画面与原位译文
+
+- 新增 **「竖版 · 全画面原位翻译」**：PiP 输出 360×640 的竖版帧，等比缩放已授权获取的当前屏幕画面，并在 OCR 检测框位置绘制译文层。
+- 新增 **「竖版 · 智能文字聚焦」**：适用于横屏 RPG；按识别区域裁切出竖版视口，保证重点文字位于窗口可读范围。可随时切回全画面。
+- 屏幕预览通过独立通道以约 **2 FPS** 更新，不因 OCR 延迟阻塞画面；每帧在设备本地 Core Image 中降采样后生成 360×640 的 PiP 视频帧。
+- 实时 OCR 的文本坐标沿识别→翻译链路传递，**仅在原文与译文的行数可靠对应时叠加**；菜单文字使用整屏扫描结果坐标。
+- 主窗口和旧满窗字幕功能仍存在：当系统 PiP 未能显示竖版窗口，或画面叠加影响游戏体验时，在“小窗排版”切换「满窗双语阅读」「满窗译文阅读」。
+- **隐私**：显示帧只在内存中合成；没有增加截图保存或新的在线传输，不绕过系统屏幕采集授权。
+
+> **限制**：竖版的是我们输出的画面比例，iOS 控制 PiP 实际外框；当前尚未完成 Codemagic 编译与真机确认。若系统采集的画面包含 PiP 自身，可能形成镜像/递归，应切换回纯字幕模式。对于较长的译文，遮罩可能需要扩大并遮住局部游戏画面，不能承诺所有文字都能无损原位显示。
+
+[3.8.1 竖版 PiP 开发记录与验收清单](docs/RELEASE_AUDIT_3_8_1.md)
 
 ## 3.8.0 Beta 1 的重点改动
 
@@ -36,7 +49,7 @@ GameLingo AI 使用 iPhone 自带的屏幕捕获与 Apple Vision OCR 识别游�
 1. 在 Codemagic 中选择分支 `feature/universal-translation-3.8-beta`。
 2. 运行 **`ios-universal-ocr-unsigned`** 工作流（Xcode 27.1）。
 3. 工作流生成 iOS 工程、运行静态审计与 Swift 冒烟测试、获取 PaddleOCR 模型、安装依赖并编译。
-4. **只有完整构建成功后**才可从 Artifacts 中获取 `GameLingoAI-Universal-v3.8.0-b18-beta-unsigned.ipa`。
+4. **只有完整构建成功后**才可从 Artifacts 中获取 `GameLingoAI-Universal-v3.8.1-b19-portrait-unsigned.ipa`。
 5. 这是未签名 IPA，需要通过 SideStore 等方式重新签名后安装；不能直接作为 App Store 发行包。
 
 ## 使用
