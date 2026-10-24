@@ -20,7 +20,10 @@ cp "$SOURCE/inference.yml" "$MODEL_DIR/inference.yml"
 
 # Ruby YAML is available on Codemagic, no extra Python packages required.
 ruby -ryaml -e '
-  source = YAML.load_file(ARGV[0])
+  # PP-OCRv6 inference.yml uses YAML anchors/aliases. Psych 4+ and Ruby 4
+  # disable aliases by default. Explicitly permit aliases, but keep YAML
+  # deserialization safe (no arbitrary Ruby classes).
+  source = YAML.safe_load_file(ARGV[0], aliases: true)
   values = source.fetch("PostProcess").fetch("character_dict")
   abort("Empty character dictionary") unless values.is_a?(Array) && values.size > 100
   File.write(ARGV[1], values.map(&:to_s).join("\n") + "\n")
