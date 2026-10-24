@@ -86,6 +86,9 @@ enum GameLanguageSupport {
                 "ja-JP", "en-US", "ko-KR", "zh-Hans", "zh-Hant",
                 "fr-FR", "de-DE", "es-ES", "ru-RU", "pt-PT"
             ]
+            // Keep live OCR lightweight; the accurate recovery pass can
+            // consider a wider range of writing systems.
+            let maximumLanguages = request.recognitionLevel == .fast ? 5 : 8
             var selected: [String] = []
             for hint in preferred {
                 let base = hint.components(separatedBy: "-").first ?? hint
@@ -94,7 +97,7 @@ enum GameLanguageSupport {
                 }), !selected.contains(match) {
                     selected.append(match)
                 }
-                if selected.count == 8 { break }
+                if selected.count == maximumLanguages { break }
             }
             // Do not force a hard-coded default when a Vision revision has
             // different model support; its automatic detection remains on.
