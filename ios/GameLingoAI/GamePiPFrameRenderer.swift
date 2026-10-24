@@ -4,6 +4,8 @@ import CoreText
 import CoreVideo
 import CoreMedia
 import QuartzCore
+import CoreImage
+import ImageIO
 
 /// Only renders pixels on a serial utility queue. It never touches UIKit,
 /// SwiftUI, AVPictureInPictureController, or AVSampleBufferDisplayLayer.
@@ -25,10 +27,14 @@ final class GamePiPFrameRenderer: @unchecked Sendable {
         let pageCount: Int
         var renderWidth: Int = 640
         var renderHeight: Int = 360
+        var sceneBuffer: CVPixelBuffer? = nil
+        var sceneOrientation: CGImagePropertyOrientation = .up
+        var sceneEntries: [GamePiPSceneText] = []
     }
 
     private let lock = NSLock()
     private let queue = DispatchQueue(label: "GameLingo.PiP.CoreText", qos: .userInitiated)
+    private lazy var imageContext = CIContext(options: [.useSoftwareRenderer: false])
     private var pending: Frame?
     private var isWorking = false
     private var pool: CVPixelBufferPool?
@@ -108,8 +114,11 @@ final class GamePiPFrameRenderer: @unchecked Sendable {
     }
 
     private func makeSample(_ frame: Frame) -> CMSampleBuffer? {
-        let requestedWidth = min(960, max(320, frame.renderWidth))
-        let requestedHeight = min(640, max(200, frame.renderHeight))
+        let isScene = frame.layout == "portraitScene" || frame.layout == "portraitFocus"
+        let requestedWidth = isScene ? GamePiPSceneLayout.portraitWidth :
+            min(960, max(320, frame.renderWidth))
+        let requestedHeight = isScene ? GamePiPSceneLayout.portraitHeight :
+            min(640, max(200, frame.renderHeight))
         guard let pool = makePool(width: requestedWidth, height: requestedHeight) else { return nil }
         var buffer: CVPixelBuffer?
         guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &buffer)
@@ -128,6 +137,9 @@ final class GamePiPFrameRenderer: @unchecked Sendable {
         }
         context.setFillColor(background)
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        if isScene {
+            renderScene(frame, context: context)
+        } else {
         context.setFillColor(accent)
         context.fill(CGRect(x: 0, y: height - 5, width: width, height: 5))
         let entries = frame.entries.isEmpty
@@ -231,7 +243,8 @@ final class GamePiPFrameRenderer: @unchecked Sendable {
             }
         }
         }
-        if frame.pageCount > 1 {
+        }
+        if !isScene && frame.pageCount > 1 {
             let segment = CGFloat(width) / CGFloat(frame.pageCount)
             context.setFillColor(accent)
             context.fill(CGRect(x: CGFloat(frame.pageIndex) * segment,
@@ -261,6 +274,64 @@ final class GamePiPFrameRenderer: @unchecked Sendable {
             attachment.first?[kCMSampleAttachmentKey_DisplayImmediately] = true
         }
         return sample
+    }
+
+    /// The live screen is an in-memory CVPixelBuffer (never written to disk).
+    /// Vision boxes share the oriented image's normalized lower-left origin.
+    private func renderScene(_ frame: Frame, context: CGContext) {
+        guard let source = frame.sceneBuffer else {
+            draw("等待屏幕采集画面…", context: context,
+                 rect: CGRect(x: 12, y: CGFloat(height) * 0.4,
+                              width: CGFloat(width - 24), height: 75),
+                 color: white, maximum: 26, minimum: 16, bold: true)
+            return
+        }
+        let image = CIImage(cvPixelBuffer: source).oriented(frame.sceneOrientation)
+        let extent = image.extent
+        guard extent.width > 0, extent.height > 0 else { return }
+        let entries = frame.sceneEntries.filter { !$0.translated.isEmpty }
+        let crop = GamePiPSceneLayout.viewport(
+            sourceWidth: Int(extent.width), sourceHeight: Int(extent.height),
+            focus: frame.layout == "portraitFocus", boxes: entries)
+        let cropRect = CGRect(x: extent.minX + crop.x * extent.width,
+                              y: extent.minY + crop.y * extent.height,
+                              width: crop.width * extent.width,
+                              height: crop.height * extent.height)
+        guard let still = imageContext.createCGImage(image, from: cropRect) else { return }
+        let canvas = GamePiPSceneLayout.canvasRect(
+            width: Double(width), height: Double(height),
+            sourceAspect: Double(cropRect.width / cropRect.height))
+        let imageRect = CGRect(x: canvas.x, y: canvas.y,
+                               width: canvas.width, height: canvas.height)
+        context.draw(still, in: imageRect)
+        // Pixel data is the game snapshot only; add translucent translations
+        // directly on top of their positions, not detached subtitle rows.
+        let shade = CGColor(colorSpace: CGColorSpaceCreateDeviceRGB(),
+                            components: [0.035, 0.08, 0.12, 0.89])!
+        for entry in entries.prefix(14) {
+            guard GamePiPSceneLayout.visible(entry, in: crop) else { continue }
+            let point = GamePiPSceneLayout.map(entry, sourceCrop: crop, canvas: canvas)
+            let x = CGFloat(max(4, min(Double(width - 100), point.x)))
+            let bottom = CGFloat(max(5, min(Double(height - 24), point.y)))
+            let targetWidth = min(CGFloat(width) - x - 5,
+                                  max(110, CGFloat(point.width) + 26))
+            // Translation can be longer than OCR text. Allow at least two
+            // lines and expand into adjacent safe space.
+            let targetHeight = min(CGFloat(height) - 10, max(
+                36, min(106, CGFloat(entry.translated.count / 12 + 1) * 22)))
+            let y = max(5, min(CGFloat(height) - targetHeight - 5,
+                               bottom + CGFloat(point.height) / 2 - targetHeight / 2))
+            let rect = CGRect(x: x, y: y, width: targetWidth, height: targetHeight)
+            context.setFillColor(shade)
+            context.fill(rect)
+            // draw() uses a top-origin rectangle for its CoreText layout.
+            let textRect = CGRect(x: rect.minX + 5,
+                                  y: CGFloat(height) - rect.maxY + 3,
+                                  width: rect.width - 10, height: rect.height - 6)
+            draw(entry.translated, context: context, rect: textRect,
+                 color: white, maximum: 23 * frame.fontScale,
+                 minimum: 12 * frame.fontScale, bold: true)
+        }
     }
 
     /// Manual CoreText line wrapping keeps UIKit and UIFont off the worker.
