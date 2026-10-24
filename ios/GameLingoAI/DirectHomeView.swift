@@ -630,43 +630,24 @@ struct DirectHomeView: View {
                 }
                 TextField("游戏名称", text: $profileDraft.name)
                     .textFieldStyle(.roundedBorder)
-                Picker("常用游戏语言", selection: $profileDraft.language) {
-                    Text("自动识别（推荐）").tag("auto")
-                    Text("日语").tag("ja")
-                    Text("英语").tag("en")
-                    Text("韩语").tag("ko")
-                    Text("法语").tag("fr")
-                    Text("德语").tag("de")
-                    Text("西班牙语").tag("es")
-                    Text("意大利语").tag("it")
-                    Text("俄语").tag("ru")
-                    Text("葡萄牙语").tag("pt")
+                Picker("游戏原文语言", selection: $profileDraft.language) {
+                    ForEach(GameOCRRouting.commonOCRLanguages.indices, id: \.self) { index in
+                        Text(GameOCRRouting.commonOCRLanguages[index].0)
+                            .tag(GameOCRRouting.commonOCRLanguages[index].1)
+                    }
                 }.pickerStyle(.menu)
-                #if MLKIT_OCR
-                Picker("游戏对白 OCR 引擎", selection: Binding(
+                #if PADDLE_OCR
+                Picker("OCR 识别引擎", selection: Binding(
                     get: { profileDraft.selectedOCR },
                     set: { profileDraft.experimentalOCR = $0 })) {
                     ForEach(GameOCREngine.allCases) { engine in
                         Text(engine.title).tag(engine)
                     }
                 }.pickerStyle(.menu)
-                if profileDraft.language != "ja" ||
-                    profileDraft.selectedOCR != .mlkitJapanese {
-                    Button {
-                        profileDraft.language = "ja"
-                        profileDraft.experimentalOCR = .mlkitJapanese
-                    } label: {
-                        Label("设置为固定日语 + ML Kit（然后保存游戏配置）",
-                              systemImage: "text.viewfinder")
-                    }
-                    .buttonStyle(.bordered).tint(mint)
-                }
-                Text(profileDraft.selectedOCR == .mlkitJapanese
-                    ? (profileDraft.language.hasPrefix("ja")
-                        ? "实验：日语对白使用 ML Kit；底部补扫及整屏菜单仍用 Apple Vision。离线翻译与 PiP 不变。"
-                        : "ML Kit 日语仅在固定日语时启用；当前自动/非日语模式将使用 Apple Vision，避免语言识别退化。")
-                    : "Apple Vision：使用原来的自动多语言 OCR。")
-                    .font(.caption2).foregroundStyle(.white.opacity(0.7))
+                Text(profileDraft.selectedOCR == .paddleHybrid
+                    ? "Vision 定位文字；复杂文字由本机 PaddleOCR 模型按需复检，支持自动识别多语言。"
+                    : "Apple Vision 多语言快速识别，支持按游戏锁定源语言。")
+                    .font(.caption).foregroundStyle(.secondary)
                 #endif
                 Text("自动模式可识别不同文字的源语言，误判时可以改为固定语言；不会自动下载所有翻译包。")
                     .font(.caption2).foregroundStyle(.white.opacity(0.7))
