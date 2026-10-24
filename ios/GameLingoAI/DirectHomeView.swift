@@ -76,7 +76,8 @@ struct DirectHomeView: View {
         .onAppear {
             capture.setHostAppForeground(true)
             profileDraft = store.activeProfile
-            downloadSourceLanguage = store.activeProfile.language
+            downloadSourceLanguage = GameLanguageSupport.isAutomatic(store.activeProfile.language)
+                ? "ja" : store.activeProfile.language
             updateCaptureConfiguration()
             configureOverlay()
             if !store.onboardingComplete { showingOnboarding = true }
@@ -281,6 +282,12 @@ struct DirectHomeView: View {
                         .font(.caption.monospacedDigit())
                 }
                 .font(.caption).foregroundStyle(.white.opacity(0.67))
+                if GameLanguageSupport.isAutomatic(store.activeProfile.language) {
+                    Text("实时检测语言：\(languageLabel(capture.detectedSourceLanguage))")
+                        .font(.caption).foregroundStyle(mint)
+                    Text("自动识别无需预设源语言；离线翻译仍需要提前安装实际语言的翻译包。")
+                        .font(.caption2).foregroundStyle(.white.opacity(0.73))
+                }
                 Text("按需下载语言包（不随 IPA 内置）")
                     .font(.caption.bold()).foregroundStyle(mint)
                 TextField("源语言代码，如 ja、en、ko、fr、de", text: $downloadSourceLanguage)
@@ -648,6 +655,7 @@ struct DirectHomeView: View {
                 TextField("游戏名称", text: $profileDraft.name)
                     .textFieldStyle(.roundedBorder)
                 Picker("常用游戏语言", selection: $profileDraft.language) {
+                    Text("自动识别（推荐）").tag("auto")
                     Text("日语").tag("ja")
                     Text("英语").tag("en")
                     Text("韩语").tag("ko")
@@ -658,7 +666,9 @@ struct DirectHomeView: View {
                     Text("俄语").tag("ru")
                     Text("葡萄牙语").tag("pt")
                 }.pickerStyle(.menu)
-                TextField("自定义 BCP-47 语言代码", text: $profileDraft.language)
+                Text("自动模式可识别不同文字的源语言，误判时可以改为固定语言；不会自动下载所有翻译包。")
+                    .font(.caption2).foregroundStyle(.white.opacity(0.7))
+                TextField("自定义 BCP-47 语言代码（auto = 自动）", text: $profileDraft.language)
                     .textFieldStyle(.roundedBorder)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -977,7 +987,8 @@ struct DirectHomeView: View {
                     .textSelection(.enabled)
                 Button("在本机翻译截图") {
                     screenshotConfiguration = TranslationSession.Configuration(
-                        source: Locale.Language(identifier: store.activeProfile.language),
+                        source: GameLanguageSupport.isAutomatic(store.activeProfile.language)
+                            ? nil : Locale.Language(identifier: store.activeProfile.language),
                         target: Locale.Language(identifier: "zh-Hans"))
                 }.buttonStyle(.borderedProminent).tint(mint)
             }
@@ -1143,7 +1154,9 @@ struct DirectHomeView: View {
     }
 
     private func languageLabel(_ language: String) -> String {
-        ["ja": "日语", "en": "英语", "ko": "韩语",
+        ["auto": "自动识别", "待检测": "待检测", "未确定": "未确定",
+         "zh-Hans": "简体中文", "zh-Hant": "繁体中文",
+         "ja": "日语", "en": "英语", "ko": "韩语",
          "fr": "法语", "de": "德语", "es": "西班牙语",
          "pt": "葡萄牙语", "it": "意大利语", "ru": "俄语"][language] ?? language
     }
