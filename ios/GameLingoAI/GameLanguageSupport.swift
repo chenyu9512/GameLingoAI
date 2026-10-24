@@ -85,7 +85,7 @@ enum GameLanguageSupport {
             // Prefer the device's active languages instead of assuming a
             // Japanese game; backfill with widespread scripts. Users can
             // select a specific source language for guaranteed priority.
-            let preferred = Locale.preferredLanguages.map(ocrHint(for:)) + [
+            let preferred = Locale.preferredLanguages.map { ocrHint(for: $0) } + [
                 "en-US", "zh-Hans", "zh-Hant", "ja-JP", "ko-KR",
                 "fr-FR", "de-DE", "es-ES", "ru-RU", "pt-PT",
                 "it-IT", "th-TH", "vi-VN", "ar-SA", "id-ID", "nl-NL"
