@@ -40,6 +40,10 @@ checks = {
         "GameOCRRouting.shouldEnhance(" in capture
         and "GamePaddleOCR.recognize(" in capture
         and "let first = pass(.fast)" in capture,
+    "Paddle diagnostic latency is snapshotted before main queue closure":
+        "let paddleDurationMs = lastPaddleMs" in capture
+        and '"paddle_ms": paddleDurationMs' in capture
+        and '"paddle_ms": lastPaddleMs' not in capture,
     "language options are multilingual":
         '("韩语", "ko")' in routing
         and '("阿拉伯语", "ar")' in routing
