@@ -247,21 +247,6 @@ struct DirectHomeView: View {
             }
             statusDashboard
             panel {
-                HStack(spacing: 9) {
-                    Image(systemName: "checkmark.shield.fill").foregroundStyle(mint)
-                    Text("单 App 直采 · 双语模式").font(.subheadline.bold())
-                    Spacer()
-                    Text(store.provider == .offline ? "本机" : "在线已开启")
-                        .font(.caption.bold())
-                        .foregroundStyle(store.provider == .offline ? mint : .orange)
-                }
-                Text(store.provider == .offline
-                    ? "原文在上、中文在下。横竖屏自动适配；默认完全本机翻译。"
-                    : "原文在上、中文在下。你已主动开启在线模式：识别出的文字会发送到选定的翻译服务器，截图不会上传。")
-                    .font(.caption).foregroundStyle(.white.opacity(0.73))
-            }
-
-            panel {
                 HStack {
                     sectionTitle("当前游戏", icon: "gamecontroller")
                     Spacer()
@@ -1095,9 +1080,14 @@ struct DirectHomeView: View {
                 Image(systemName: icon).font(.system(size: 20, weight: .semibold))
                 Text(text).font(.system(size: 11))
             }
-            .foregroundStyle(tab == i ? mint : .white.opacity(0.62))
-            .frame(maxWidth: .infinity)
-        }.buttonStyle(.plain)
+            .foregroundStyle(tab == i ? mint : .white.opacity(0.69))
+            .frame(maxWidth: .infinity, minHeight: 47)
+            .background(tab == i ? mint.opacity(0.09) : .clear,
+                        in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(text)
+        .accessibilityAddTraits(tab == i ? [.isSelected] : [])
     }
 
     private func control(_ name: String, value: Binding<Double>,
@@ -1115,9 +1105,10 @@ struct DirectHomeView: View {
         VStack(alignment: .leading, spacing: 11, content: content)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(15)
-            .background(card.opacity(0.96), in: RoundedRectangle(cornerRadius: 20))
-            .overlay(RoundedRectangle(cornerRadius: 20)
-                .stroke(.white.opacity(0.07), lineWidth: 1))
+            .background(card.opacity(0.92), in: RoundedRectangle(cornerRadius: 17))
+            .overlay(RoundedRectangle(cornerRadius: 17)
+                .stroke(.white.opacity(0.09), lineWidth: 1))
+            .shadow(color: .black.opacity(0.12), radius: 7, y: 2)
     }
 
     private func sectionTitle(_ title: String, icon: String) -> some View {
