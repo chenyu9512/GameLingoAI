@@ -9,9 +9,15 @@ struct OCRRoutingSmoke {
         precondition(!GameOCRRouting.shouldEnhance(
             confidence: 0.1, candidateCount: 4, mode: .vision,
             performanceFast: false, millisecondsSinceLast: 5000))
-        precondition(!GameOCRRouting.shouldEnhance(
+        precondition(GameOCRRouting.shouldEnhance(
             confidence: 0.1, candidateCount: 4, mode: .paddleHybrid,
             performanceFast: true, millisecondsSinceLast: 5000))
+        precondition(!GameOCRRouting.shouldEnhance(
+            confidence: 0.5, candidateCount: 4, mode: .paddleHybrid,
+            performanceFast: true, millisecondsSinceLast: 5000))
+        precondition(!GameOCRRouting.shouldEnhance(
+            confidence: 0.1, candidateCount: 4, mode: .paddleHybrid,
+            performanceFast: true, millisecondsSinceLast: 1500))
         precondition(!GameOCRRouting.shouldEnhance(
             confidence: 0.1, candidateCount: 4, mode: .paddleHybrid,
             performanceFast: false, millisecondsSinceLast: 300))
