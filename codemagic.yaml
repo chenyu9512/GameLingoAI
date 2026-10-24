@@ -1,6 +1,6 @@
 workflows:
   ios-offline-unsigned:
-    name: GameLingo Offline iPhone - unsigned IPA for Windows sideload
+    name: '99 | LEGACY v2.0.0 (Build 1) | ReplayKit / iOS 26 | unsigned'
     instance_type: mac_mini_m2
     max_build_duration: 40
     environment:
@@ -43,15 +43,15 @@ workflows:
           cp -R "$CM_BUILD_DIR/Build/Build/Products/Release-iphoneos/GameLingoAI.app" \
             "$CM_BUILD_DIR/artifacts/Payload/GameLingoAI.app"
           cd "$CM_BUILD_DIR/artifacts"
-          /usr/bin/zip -qr GameLingoAI-Offline-unsigned.ipa Payload
+          /usr/bin/zip -qr GameLingoAI-ReplayKit-v2.0.0-b1-legacy-unsigned.ipa Payload
           rm -rf Payload
     artifacts:
       - artifacts/xcodebuild.log
-      - artifacts/GameLingoAI-Offline-unsigned.ipa
+      - artifacts/GameLingoAI-ReplayKit-v2.0.0-b1-legacy-unsigned.ipa
       - Build/Logs/Build/*.xcactivitylog
 
   ios-direct-unsigned:
-    name: GameLingo iOS 27 direct capture - no App Groups or extension
+    name: '01 | MAIN v3.5.3 (Build 14) | Direct / iOS 27 | unsigned'
     instance_type: mac_mini_m2
     max_build_duration: 40
     environment:
@@ -192,10 +192,10 @@ workflows:
           mkdir -p "$CM_BUILD_DIR/artifacts/Payload"
           cp -R "$CM_BUILD_DIR/Build/Build/Products/Release-iphoneos/GameLingoAI.app" "$CM_BUILD_DIR/artifacts/Payload/GameLingoAI.app"
           cd "$CM_BUILD_DIR/artifacts"
-          /usr/bin/zip -qr GameLingoAI-Direct-iOS27-unsigned.ipa Payload
+          /usr/bin/zip -qr GameLingoAI-Direct-v3.5.3-b14-unsigned.ipa Payload
           rm -rf Payload
     artifacts:
-      - artifacts/GameLingoAI-Direct-iOS27-unsigned.ipa
+      - artifacts/GameLingoAI-Direct-v3.5.3-b14-unsigned.ipa
       - artifacts/direct-package-audit.txt
       - artifacts/compiler-errors-direct.txt
       - artifacts/xcodebuild-direct.log
