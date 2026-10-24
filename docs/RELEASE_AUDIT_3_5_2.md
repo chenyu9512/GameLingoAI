@@ -12,7 +12,9 @@
 - **其他翻译入口**：整屏菜单、截图菜单、截图本机翻译、可选在线服务均不再把 `auto` 作为语言代码。自动语言无法确定的菜单可保存文字，但暂停自动翻译等待人工选择。
 - **OCR 延迟**：快速模式只有空结果或严重低置信度（低于 0.42）才触发同步 Accurate 重扫；平衡模式保留 0.66 触发线。中等置信度通过短间隔多帧稳定性确认。
 - **静态屏幕**：等待确认的低置信度候选文字不再被三秒静态跳过门槛阻挡。
-- **采集频率**：ScreenCaptureKit 快速/平衡/省电模式分别限制为 10/6/3 FPS，真正的 OCR 执行频率仍由独立调度控制。
+- **采集限频（修复 iOS 27.1 构建阻断）**：`SCStreamConfiguration.minimumFrameInterval` 在 iOS 27.1 SDK 中标为 unavailable；从 SCStreamConfiguration 移除该 macOS 专属属性，改在 `SCStreamOutput.didOutputSampleBuffer` 回调中以单调时钟进行 10/6/3 FPS（快速/平衡/省电）软件采样，不将被跳过帧送入 OCR 队列。只保留最新待处理帧，OCR minimumInterval 保持不变；配置变更后的首帧不受限。该值表示**接收帧采样上限**，不是系统实际采集帧率、也不是保证 OCR 输出 10 FPS。
+- **采样指标**：软件跳过的帧计数与“等待中被替换的帧”单独记录；既有 `dropped` 指标仍指等待帧替换，避免误判成游戏对白丢失。
+- **构建前保护**：`tools/verify_direct_release.py` 禁止再次出现 `configuration.minimumFrameInterval`，确保 iOS 路径不依赖 macOS 专用 API。
 - **底部 OCR**：仅当补扫帧和当前画面的底部指纹一致时，才合并补扫文字，防止旧页面文字混入新页面。
 - **回归测试**：新增 `tests/auto_language_smoke.swift`，由 Codemagic Mac 对语言识别进行基础测试；发布静态检查同步更新。
 
