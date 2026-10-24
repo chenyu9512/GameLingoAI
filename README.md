@@ -1,18 +1,27 @@
-# GameLingoAI · Universal OCR 3.7.1
+# GameLingoAI · Universal OCR 3.7.2
 
-**当前分支：`feature/universal-ocr-ui-language` · v3.7.1 (Build 16) · 开发测试版**
+**当前分支：`feature/universal-ocr-ui-language` · v3.7.2 (Build 17) · 开发测试版**
 
 > Vision + PaddleOCR 混合识别、多语言、离线翻译、满窗 PiP、首次启动预热。本版尚待 Codemagic Xcode 编译和 iPhone 真机验收。**不要把本分支当成 `main` 稳定发布。**
 
 | 项目 | 当前设置 |
 | --- | --- |
 | GitHub 分支 | `feature/universal-ocr-ui-language` |
-| App 版本 | **3.7.1（Build 16）** |
+| App 版本 | **3.7.2（Build 17）** |
 | OCR 引擎 | Apple Vision（默认） / Vision + PaddleOCR（按需增强） |
 | 翻译 | Apple 本机离线；在线服务仅在用户明确配置启用后使用 |
 | Codemagic 工作流 | `ios-universal-ocr-unsigned` |
-| 构建产物（若成功） | `GameLingoAI-UniversalOCR-v3.7.1-b16-unsigned.ipa` |
+| 构建产物（若成功） | `GameLingoAI-UniversalOCR-v3.7.2-b17-unsigned.ipa` |
 | 当前验收状态 | 源码开发完成，待 Codemagic 与真机验证 |
+
+## 3.7.2 重点修复（真机日志驱动）
+
+- **解决 Accurate 复检过密：** 对动画画面加入全局 OCR 精确复检间隔；相同候选文本优先交给多帧确认，而不是重复加载 Accurate。
+- **减少自动语言遗漏：** 只有当前游戏近期明确识别出日语或中文后，才允许纯汉字短对白继承该语言；混合字母、跨游戏或过期上下文不做推断。
+- **增强会话诊断：** 重新开始采集时重新记录首次 OCR；追加基于上下文解决语言的计数，后续可对照等待时间和 OCR 复检次数。
+- **真机证据：** 参考新日志 2026-10-24 的 16 条 OCR 采样、70 次累计 Accurate 复检和多次自动语言不确定事件。源码修复不等于已验证设备延迟下降。
+
+[3.7.2 诊断和修复说明](docs/RELEASE_AUDIT_3_7_2.md)
 
 ## 新版重点
 
@@ -29,7 +38,7 @@
 1. 在 Codemagic 连接仓库 `chenyu9512/GameLingoAI`，选择分支 **`feature/universal-ocr-ui-language`**。
 2. 运行工作流 **`ios-universal-ocr-unsigned`**，Xcode 27.1 环境。
 3. 工作流会生成 Xcode 工程、执行静态审计与 Swift 冒烟测试、下载官方 PP-OCRv6 Small Recognition ONNX 模型、安装 CocoaPods，再尝试构建。
-4. 构建成功后从 Artifacts 下载 **`GameLingoAI-UniversalOCR-v3.7.1-b16-unsigned.ipa`**。
+4. 构建成功后从 Artifacts 下载 **`GameLingoAI-UniversalOCR-v3.7.2-b17-unsigned.ipa`**。
 5. 使用 SideStore 等工具重签名并侧载到 iPhone。产物是**未签名 IPA**，不能直接点击安装。
 
 ## 使用步骤
@@ -49,4 +58,4 @@
 - PiP 的悬浮位置、外部窗口大小和跨 App 生命周期归系统控制；本应用优化的是**小窗内部**的文字布局，不会任意覆盖整个游戏或修改游戏文件。
 - 本仓库没有因这次源码提交而自动获得 App Store 审核通过或真机性能达标认证。
 
-[3.7.1 完整改动、验收清单](docs/RELEASE_AUDIT_3_7_1.md) · [Universal OCR 基础说明](docs/UNIVERSAL_OCR.md) · [返回 main 维护线](https://github.com/chenyu9512/GameLingoAI/tree/main)
+[3.7.2 完整改动、验收清单](docs/RELEASE_AUDIT_3_7_1.md) · [Universal OCR 基础说明](docs/UNIVERSAL_OCR.md) · [返回 main 维护线](https://github.com/chenyu9512/GameLingoAI/tree/main)
