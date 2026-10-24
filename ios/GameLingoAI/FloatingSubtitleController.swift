@@ -492,15 +492,19 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
             menuValid && (!liveValid || sceneMenuAt > sceneLiveAt)
             ? sceneMenuLines : (liveValid ? sceneLiveLines : [])
         let safetyFallback = isSceneLayout && isActive && !sceneSourceExclusionVerified
-        let activeLayout = safetyFallback ? "fullChinese" : layoutMode
+        let activeLayout = safetyFallback ? "portraitSafeText" : layoutMode
+        let safeTextEntries = Array(recentPairs.suffix(5)).map {
+            GamePiPFrameRenderer.Pair(original: $0.original, translated: $0.translated)
+        }
         let next = GamePiPFrameRenderer.Frame(
-            generation: renderGeneration, entries: selected,
+            generation: renderGeneration,
+            entries: safetyFallback ? safeTextEntries : selected,
             layout: activeLayout, mode: subtitleMode, fontScale: fontScale,
             pageIndex: pageIndex, pageCount: count,
-            renderWidth: safetyFallback ? Int(renderSize.width) :
-                (isSceneLayout ? GamePiPSceneLayout.portraitWidth : Int(renderSize.width)),
-            renderHeight: safetyFallback ? Int(renderSize.height) :
-                (isSceneLayout ? GamePiPSceneLayout.portraitHeight : Int(renderSize.height)),
+            renderWidth: isSceneLayout ? GamePiPSceneLayout.portraitWidth :
+                Int(renderSize.width),
+            renderHeight: isSceneLayout ? GamePiPSceneLayout.portraitHeight :
+                Int(renderSize.height),
             sceneBuffer: isSceneLayout && !safetyFallback ? sceneFrame : nil,
             sceneOrientation: sceneOrientation,
             sceneEntries: isSceneLayout && !safetyFallback ? spatial : [])
@@ -623,7 +627,6 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         status = protectedFromSelfCapture
             ? "安全模式：防止 PiP 自捕获，继续显示实时译文"
             : "同屏字幕运行中：现在可以切换回游戏"
-        renderFrame()
         #if DIRECT_CAPTURE
         GameDiagnosticLog.shared.event("pip_startup", metrics: [
             "pip_result": 1,
