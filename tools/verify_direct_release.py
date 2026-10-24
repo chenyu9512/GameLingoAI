@@ -23,6 +23,8 @@ menu = read("ios/GameLingoAI/GameMenuCatalog.swift")
 online = read("ios/GameLingoAI/GameOnlineTranslation.swift")
 languages = read("ios/GameLingoAI/GameLanguageSupport.swift")
 quality = read("ios/GameLingoAI/GameOCRQuality.swift")
+safety = read("ios/GameLingoAI/GameTranslationSafety.swift")
+diagnostic_log = read("ios/GameLingoAI/GameDiagnosticLog.swift")
 txt_parser = read("ios/GameLingoAI/GameGlossaryTXTParser.swift")
 txt_library = read("ios/GameLingoAI/GameGlossaryLibrary.swift")
 txt_view = read("ios/GameLingoAI/GameGlossaryLibraryView.swift")
@@ -288,6 +290,36 @@ checks = {
     "menu auto source guarded":
         'configured: language) ?? "und"' in menu
         and 'if language == "und"' in menu,
+    "language-source tracker and failure policy compiled":
+        "GameTranslationSafety.swift" in generator
+        and "GameSourceLanguageTracker" in safety
+        and "GameTranslationRetryPolicy" in safety,
+    "automatic source is stabilized per OCR worker":
+        "sourceTracker.resolve(" in capture
+        and "sourceTracker.reset()" in capture,
+    "offline language status checks only before model invocation":
+        "LanguageAvailability().status(" in capture
+        and "translationNeedsModel(text, profile: profile, key: key)" in capture
+        and "case .supported:" in capture and "case .unsupported:" in capture,
+    "per-language failures stop retry storms":
+        "translationRetry.canAttempt(" in capture
+        and "translationRetry.recordFailure(" in capture
+        and "translationRetry.recordSuccess(" in capture,
+    "translation diagnostics classify failure without saving content":
+        '"translation_language_status"' in diagnostic_log
+        and '"translation_error_kind"' in diagnostic_log
+        and '"translation_retry_delay_sec"' in diagnostic_log
+        and '"source_language_id"' in diagnostic_log,
+    "language pack preparation refreshes after app foreground":
+        "capture.refreshOfflineAvailability()" in home,
+    "original PiP and translation providers retained":
+        "FloatingSubtitlePreview" in home
+        and "session.translate(batch: group)" in capture
+        and "GameOnlineTranslator.shared.translate(" in capture
+        and "case .myMemory" in online,
+    "main direct build does not pull experimental ML Kit":
+        "MLKIT_OCR" not in generator
+        and "GoogleMLKit" not in generator,
     "direct PiP preview retained": "FloatingSubtitlePreview" in home,
     "offline Translation session": "TranslationSession(" in online
     and "installedSource:" in online
