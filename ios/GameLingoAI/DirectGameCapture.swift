@@ -592,13 +592,12 @@ final class DirectGameCapture: NSObject, ObservableObject,
             GameDiagnosticLog.shared.event("ocr_sample", metrics: [
                 "ocr_ms": elapsedMs, "queue_ms": dispatchWait,
                 "dropped": skipped, "sampled_out": sampledOut,
-                "confidence_pct": recognition.backend == .vision ?
-                    Int(recognition.confidence * 100) : 0,
+                "confidence_pct": Int(recognition.confidence * 100),
                 "ocr_backend": recognition.backend == .vision ? 1 : 2,
                 "ocr_requested_backend": snapshot.ocrEngine == .vision ? 1 : 2,
                 "ocr_paddle_available": GamePaddleOCR.isAvailable ? 1 : 0,
                 "configured_auto": GameLanguageSupport.isAutomatic(snapshot.language) ? 1 : 0,
-                "confidence_available": recognition.backend == .vision ? 1 : 0,
+                "confidence_available": 1,
                 "rejected_lines": recognition.rejected, "bottom_ms": latestBottomMs,
                 "accurate_rescans": preciseRescans
             ])
