@@ -275,8 +275,13 @@ checks = {
         and "pendingConfirmation" in capture,
     "fast OCR accurate fallback on critically poor OCR only":
         "snapshot.performance == .fast ? 0.42 : 0.66" in capture,
-    "capture frame rate capped":
-        "configuration.minimumFrameInterval" in capture,
+    "iOS-compatible software capture sampling (no macOS-only API)":
+        "configuration.minimumFrameInterval" not in capture
+        and "lastIngressRevision" in capture
+        and "ProcessInfo.processInfo.systemUptime" in capture
+        and "uptime - lastIngressAt < 1.0 / fps" in capture
+        and "config.performance == .fast ? 10" in capture
+        and "sampledOutFrames += 1" in capture,
     "stale bottom OCR blocked":
         "lastBottomFingerprint" in capture
         and "currentBottomFingerprint == lastBottomFingerprint" in capture,
