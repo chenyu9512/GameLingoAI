@@ -299,16 +299,8 @@ workflows:
           test ! -d "$APP/PlugIns"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist" | grep -q '^3.7.1
-          mkdir -p "$CM_BUILD_DIR/artifacts/Payload"
-          cp -R "$APP" "$CM_BUILD_DIR/artifacts/Payload/GameLingoAI.app"
-          cd "$CM_BUILD_DIR/artifacts"
-          /usr/bin/zip -qr GameLingoAI-UniversalOCR-v3.7.1-b16-unsigned.ipa Payload
-          rm -rf Payload
-    artifacts:
-      - artifacts/GameLingoAI-UniversalOCR-v3.7.1-b16-unsigned.ipa
-      - artifacts/xcodebuild-universal.log
-
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist" | grep -q '^3.7.1$'
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist" | grep -q '^16$'
           mkdir -p "$CM_BUILD_DIR/artifacts/Payload"
           cp -R "$APP" "$CM_BUILD_DIR/artifacts/Payload/GameLingoAI.app"
           cd "$CM_BUILD_DIR/artifacts"
