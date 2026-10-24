@@ -247,15 +247,21 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
             let menu = menuPairs.isEmpty ? Array(recentPairs.suffix(1)) : menuPairs
             pageGroups = chunk(menu, count: layoutMode == "spatialMenu" ? 5 : 4)
         } else if layoutMode == "fullBilingual" || layoutMode == "fullChinese" {
+            // Fit groups to the actual PiP playback size, not a fixed
+            // 640x360/characters-per-page assumption.
+            let narrow = renderSize.width < 460 || renderSize.height < 265
+            let chineseOnly = layoutMode == "fullChinese"
+            let characters = narrow ? (chineseOnly ? 60 : 44) :
+                (chineseOnly ? 110 : 65)
             let pairs = Array(recentPairs.suffix(12)).flatMap {
                 GamePiPReadingLayout.paginate(
                     original: $0.original, translated: $0.translated,
-                    originalLimit: layoutMode == "fullChinese" ? 150 : 80,
-                    translatedLimit: layoutMode == "fullChinese" ? 150 : 70)
+                    originalLimit: characters,
+                    translatedLimit: characters)
             }
             let groups = GamePiPReadingLayout.group(
-                pairs, maxPairs: layoutMode == "fullChinese" ? 4 : 3,
-                maxCharacters: layoutMode == "fullChinese" ? 210 : 125)
+                pairs, maxPairs: narrow ? 1 : (chineseOnly ? 3 : 2),
+                maxCharacters: narrow ? characters : (chineseOnly ? 195 : 115))
             pageGroups = groups.map { group in
                 group.map { SubtitlePage(original: $0.original, translated: $0.translated) }
             }
