@@ -66,7 +66,12 @@ final class GameStartupWarmup: ObservableObject {
             do {
                 let session = TranslationSession(installedSource: source, target: target)
                 // A small fixed string only; never submit captured game content.
-                _ = try await session.translate("Hello")
+                let sample: [String: String] = [
+                    "ja": "こんにちは", "en": "Hello", "ko": "안녕하세요",
+                    "fr": "Bonjour", "de": "Hallo", "es": "Hola",
+                    "pt": "Olá", "it": "Ciao", "ru": "Привет"
+                ]
+                _ = try await session.translate(sample[warmupLanguage] ?? "Hello")
                 guard !Task.isCancelled, self.activeKey == key else { return }
                 self.translationMilliseconds = max(0, Int(
                     (CFAbsoluteTimeGetCurrent() - translationStarted) * 1000))
@@ -90,7 +95,9 @@ final class GameStartupWarmup: ObservableObject {
     }
 
     private func finish(key: String, started: CFAbsoluteTime, result: String) {
-        completedKey = key
+        // Missing system packs are not a permanent "completed" state.
+        // Recheck on foreground after the user downloads a language pack.
+        completedKey = (!key.hasSuffix("|true") || languageReady) ? key : ""
         activeKey = ""
         isPreparing = false
         status = result
