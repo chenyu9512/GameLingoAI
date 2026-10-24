@@ -44,7 +44,7 @@ final class GameDiagnosticLog {
                             "rejected_lines", "bottom_ms", "translation_ms",
                             "capture_to_translation_ms", "failure_count", "accurate_rescans",
                             "sampled_out", "ocr_backend", "confidence_available",
-                             "ocr_requested_backend", "ocr_paddle_available",
+                             "ocr_requested_backend", "ocr_paddle_available", "paddle_ms",
                              "configured_auto", "reason_code", "retry_after_ms",
                              "provider_code", "error_domain_code", "error_code", "error_negative"]
             let clean = metrics.filter { accepted.contains($0.key) }
