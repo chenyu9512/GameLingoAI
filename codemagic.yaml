@@ -232,6 +232,7 @@ workflows:
       - name: Fetch official PP-OCRv6 Small recognition weights
         script: |
           set -e
+          ruby tests/paddle_yaml_alias_smoke.rb
           bash tools/fetch_paddle_rec_model.sh
           test -s ios/GameLingoAI/PaddleModels/rec/inference.onnx
           test -s ios/GameLingoAI/PaddleModels/rec/characters.txt
