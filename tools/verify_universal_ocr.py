@@ -114,8 +114,11 @@ checks = {
         and "CIImage(cvPixelBuffer: source)" in renderer,
     "positioned OCR lines survive source-to-translation mapping":
         "spatialLines: sorted.map" in capture
-        and "spatialLines: recognition.spatialLines" in capture
+        and "let stableSpatialLines = recognition.spatialLines" in capture
+        and "spatialLines: stableSpatialLines" in capture
         and "sceneText = zip(spatialLines, outputLines)" in capture
+        and ".onReceive(capture.$sceneText)" in ui
+        and "overlay.setSceneTranslatedLines(lines)" in ui
         and "setSceneTranslatedLines" in pip
         and "setSceneMenuPage" in pip,
     "portrait mapping tests enabled in Codemagic":
@@ -145,7 +148,10 @@ checks = {
         and "fullBilingual" in renderer and "fullChinese" in renderer,
     "PiP render dimensions and spatial menu OCR boxes are preserved":
         "didTransitionToRenderSize newRenderSize:" in pip
-        and "renderWidth: Int(renderSize.width)" in pip
+        and "renderWidth: isSceneLayout ? GamePiPSceneLayout.portraitWidth :" in pip
+        and "renderHeight: isSceneLayout ? GamePiPSceneLayout.portraitHeight :" in pip
+        and "Int(renderSize.width)" in pip
+        and "Int(renderSize.height)" in pip
         and "makePool(width: requestedWidth" in renderer
         and "setStructuredMenuEntries" in ui
         and "spatialMenu" in renderer,
