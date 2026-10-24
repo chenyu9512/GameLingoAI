@@ -40,6 +40,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
     @Published private(set) var failures = 0
     @Published private(set) var lastError = ""
     @Published private(set) var detectedSourceLanguage = "待检测"
+    @Published private(set) var accurateRescanCount = 0
     @Published private(set) var detectedLayout: GameFrameLayout = .portrait
     @Published private(set) var screenDimensions = "等待画面"
     @Published private(set) var activeRotation: GameScreenRotation = .automatic
@@ -122,6 +123,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
     private var candidate = ""
     private var candidateCount = 0
     private var candidateConfidence = 0.0
+    // Worker-only counter; UI and JSONL read snapshots on the main queue.
+    private var accurateRescanTotal = 0
 
     // Mutable only on the main actor.
     private var stream: SCStream?
@@ -532,6 +535,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let latestBottomCount = lastBottomText.isEmpty ? 0 :
             lastBottomText.components(separatedBy: "\n").count
         let latestBottomMs = lastBottomDuration
+        let preciseRescans = accurateRescanTotal
         DispatchQueue.main.async {
             guard self.isCurrent(frame.revision) else { return }
             self.lastOCRRaw = recognition.raw
@@ -544,13 +548,15 @@ final class DirectGameCapture: NSObject, ObservableObject,
             self.scans += 1
             self.lastFrameAt = Date()
             self.ocrElapsedMs = elapsedMs
+            self.accurateRescanCount = preciseRescans
             self.queueWaitMs = dispatchWait
             self.discardedCaptureFrames = skipped
             self.ocrConfidence = recognition.confidence
             GameDiagnosticLog.shared.event("ocr_sample", metrics: [
                 "ocr_ms": elapsedMs, "queue_ms": dispatchWait,
                 "dropped": skipped, "confidence_pct": Int(recognition.confidence * 100),
-                "rejected_lines": recognition.rejected, "bottom_ms": latestBottomMs
+                "rejected_lines": recognition.rejected, "bottom_ms": latestBottomMs,
+                "accurate_rescans": preciseRescans
             ])
         }
         guard isCurrent(frame.revision) else { return }
@@ -874,6 +880,7 @@ final class DirectGameCapture: NSObject, ObservableObject,
         let threshold = snapshot.performance == .fast ? 0.42 : 0.66
         if snapshot.performance != .battery &&
            (first.text.isEmpty || first.confidence < threshold) {
+            accurateRescanTotal += 1
             let second = pass(.accurate)
             return second.text.isEmpty ? first : second
         }
@@ -1018,6 +1025,8 @@ final class DirectGameCapture: NSObject, ObservableObject,
         GameLingo Direct Diagnostics (no screenshot contents)
         Game: \(GameLingoStore.shared.activeProfile.name)
         Mode: \(GameLingoStore.shared.performance.title)
+        Detected source language: \(detectedSourceLanguage)
+        Accurate OCR rescans: \(accurateRescanCount)
         Phase: \(phase)
         Details: \(details)
         Capturing: \(isCapturing)
