@@ -53,6 +53,10 @@ final class DirectGameCapture: NSObject, ObservableObject,
     // The handler receives only in-memory frames on the main queue.
     private var sceneFrameHandler: ((CVPixelBuffer, CGImagePropertyOrientation) -> Void)?
     private var scenePreviewEnabled = false
+    // Protected by gate. Known PiP translations must not enter OCR→translation
+    // again when full-display capture includes our own floating text.
+    private var piPEchoProtection = false
+    private var visiblePiPTranslations: [String] = []
     private var lastSceneFrameAt: TimeInterval = 0
 
     private struct Snapshot: Equatable {
@@ -187,6 +191,14 @@ final class DirectGameCapture: NSObject, ObservableObject,
 
     /// Called by SwiftUI scene lifecycle; prevents scanning GameLingo's own UI
     /// as if it were a game menu.
+    @MainActor
+    func setPiPEchoProtection(enabled: Bool, visibleTexts: [String]) {
+        gate.lock()
+        piPEchoProtection = enabled
+        visiblePiPTranslations = enabled ? Array(visibleTexts.suffix(6)) : []
+        gate.unlock()
+    }
+
     @MainActor
     func setScenePreview(enabled: Bool,
                          handler: ((CVPixelBuffer, CGImagePropertyOrientation) -> Void)?) {
@@ -643,6 +655,23 @@ final class DirectGameCapture: NSObject, ObservableObject,
                         backend: recognition.backend,
                         spatialLines: merged.positions)
                 }
+            }
+        }
+        gate.lock()
+        let echoIsActive = piPEchoProtection
+        let ownTranslations = visiblePiPTranslations
+        gate.unlock()
+        if echoIsActive && snapshot.language != snapshot.targetLanguage {
+            let cleaned = GameOCRSpatialMerge.excludingOwnPiPText(
+                recognition.text, positions: recognition.spatialLines,
+                visibleTranslations: ownTranslations)
+            if cleaned.appended > 0 {
+                recognition = Recognition(
+                    text: cleaned.text, confidence: recognition.confidence,
+                    lineCount: recognition.lineCount, raw: recognition.raw,
+                    rejected: recognition.rejected + cleaned.appended,
+                    backend: recognition.backend,
+                    spatialLines: cleaned.positions)
             }
         }
         let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000)
