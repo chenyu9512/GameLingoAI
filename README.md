@@ -1,6 +1,6 @@
 # GameLingo AI · Universal Screen Translator
 
-**3.8.1 · Build 19 · iOS 27 开发版**
+**3.8.2 · Build 20 · iOS 27 开发版**
 
 > 当前分支：`feature/universal-translation-3.8-beta`。由 Universal OCR v3.7.2 独立分支演进；旧开发分支和 `main` 不受本次修改影响。本版尚未完成 Codemagic 完整编译及 iPhone 真机验收，不能当成正式稳定版。
 
@@ -10,14 +10,25 @@ GameLingo AI 使用 iPhone 自带的屏幕捕获与 Apple Vision OCR 识别游�
 
 | 项目 | 当前值 |
 | --- | --- |
-| App 版本 | **3.8.1（Build 19）实验版** |
+| App 版本 | **3.8.2（Build 20）待验收版** |
 | 开发分支 | `feature/universal-translation-3.8-beta` |
 | Codemagic 工作流 | `ios-universal-ocr-unsigned` |
-| 预期产物 | `GameLingoAI-Universal-v3.8.1-b19-portrait-unsigned.ipa` |
+| 预期产物 | `GameLingoAI-Universal-v3.8.2-b20-stable-unsigned.ipa` |
 | OCR | Apple Vision / Vision + PaddleOCR 混合增强 |
 | 翻译 | Apple Translation（默认本机）；第三方在线服务需要用户明确启用 |
 | PiP | 系统画中画，支持满窗译文/双语布局 |
 | 本版状态 | **已提交源码，待完整 Xcode 编译与真机验证** |
+
+## 3.8.2：防递归安全模式与小字识别
+
+**重要行为变化：** 由于 iOS 全屏采集不保证自动排除系统 PiP，开启「竖版画面」并使 PiP 真正弹出时，App **自动停止向活动 PiP 回灌实时游戏画面**，转为保持 360×640 视频比例、最多显示最近五组译文的纯文字画面。这避免了无限套画面的反馈风险；游戏仍由用户授权的系统采集进行 OCR 与翻译。当前 **不能承诺在活动 PiP 内同时持续显示游戏实时画面与避免自捕获**。旧满窗字幕模式继续可用。
+
+- 对当前 PiP 实际显示的译文增加精确 OCR 回声过滤，避免把自身文字重复提交翻译；不根据屏幕坐标猜测 PiP 位置。
+- 小文字增强：实时 Vision 识别阈值调低、后台 Accurate 有严格的扫描间隔；底部小字识别的每个文本框会保留位置，并在源文本与坐标一一对应时送入原位翻译路径。
+- 增加 PiP 合成 P50/P95、背压、输出帧和安全模式的本机匿名指标，便于用 JSONL 诊断性能。
+- 保留最新帧优先、原有 Vision/Paddle 选择、多语言、截图翻译及系统采集授权；无需新权限或收费 API。
+
+[3.8.2 改动说明及真机验收清单](docs/RELEASE_AUDIT_3_8_2.md)
 
 ## 3.8.1：竖版画面与原位译文
 
@@ -49,7 +60,7 @@ GameLingo AI 使用 iPhone 自带的屏幕捕获与 Apple Vision OCR 识别游�
 1. 在 Codemagic 中选择分支 `feature/universal-translation-3.8-beta`。
 2. 运行 **`ios-universal-ocr-unsigned`** 工作流（Xcode 27.1）。
 3. 工作流生成 iOS 工程、运行静态审计与 Swift 冒烟测试、获取 PaddleOCR 模型、安装依赖并编译。
-4. **只有完整构建成功后**才可从 Artifacts 中获取 `GameLingoAI-Universal-v3.8.1-b19-portrait-unsigned.ipa`。
+4. **只有完整构建成功后**才可从 Artifacts 中获取 `GameLingoAI-Universal-v3.8.2-b20-stable-unsigned.ipa`。
 5. 这是未签名 IPA，需要通过 SideStore 等方式重新签名后安装；不能直接作为 App Store 发行包。
 
 ## 使用
