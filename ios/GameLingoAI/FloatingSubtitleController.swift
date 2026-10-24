@@ -23,6 +23,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     @Published private(set) var renderElapsedMs = 0
     @Published private(set) var captureToPiPMs = 0
     @Published private(set) var backpressureCount = 0
+    @Published private(set) var protectedFromSelfCapture = false
     @Published private(set) var p50CaptureToPiPMs = 0
     @Published private(set) var p95CaptureToPiPMs = 0
 
@@ -47,6 +48,9 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     private var recentPairs = [SubtitlePage(original: "おかえりなさい。", translated: "欢迎回来。")]
     private var menuPairs: [SubtitlePage] = []
     private var renderSize = CMVideoDimensions(width: 640, height: 360)
+    // iOS 27 full-display sharing cannot be assumed to exclude system PiP.
+    // Fail closed: a live scene must never be mirrored into an active PiP.
+    private var sceneSourceExclusionVerified = false
     private var sceneFrame: CVPixelBuffer?
     private var sceneOrientation: CGImagePropertyOrientation = .up
     private var sceneLiveLines: [GamePiPSceneText] = []
@@ -142,7 +146,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
 
     func setSceneFrame(_ buffer: CVPixelBuffer,
                        orientation: CGImagePropertyOrientation) {
-        guard isSceneLayout else { return }
+        guard isSceneLayout && (!isActive || sceneSourceExclusionVerified) else { return }
         sceneFrame = buffer
         sceneOrientation = orientation
         guard isActive || isPreparing || startAfterFirstFrame else { return }
@@ -197,7 +201,10 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         guard subtitleMode != newMode || layoutMode != newLayout else { return }
         subtitleMode = newMode
         layoutMode = newLayout
-        if !isSceneLayout { sceneFrame = nil }
+        if !isSceneLayout || (isActive && !sceneSourceExclusionVerified) {
+            sceneFrame = nil
+        }
+        protectedFromSelfCapture = isSceneLayout && isActive && !sceneSourceExclusionVerified
         rebuildPages()
     }
 
@@ -408,6 +415,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     }
 
     func stop() {
+        protectedFromSelfCapture = false
         sceneFrame = nil
         sceneLiveLines = []
         sceneMenuLines = []
@@ -483,17 +491,19 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
         let spatial: [GamePiPSceneText] =
             menuValid && (!liveValid || sceneMenuAt > sceneLiveAt)
             ? sceneMenuLines : (liveValid ? sceneLiveLines : [])
+        let safetyFallback = isSceneLayout && isActive && !sceneSourceExclusionVerified
+        let activeLayout = safetyFallback ? "fullChinese" : layoutMode
         let next = GamePiPFrameRenderer.Frame(
             generation: renderGeneration, entries: selected,
-            layout: layoutMode, mode: subtitleMode, fontScale: fontScale,
+            layout: activeLayout, mode: subtitleMode, fontScale: fontScale,
             pageIndex: pageIndex, pageCount: count,
-            renderWidth: isSceneLayout ? GamePiPSceneLayout.portraitWidth :
-                Int(renderSize.width),
-            renderHeight: isSceneLayout ? GamePiPSceneLayout.portraitHeight :
-                Int(renderSize.height),
-            sceneBuffer: isSceneLayout ? sceneFrame : nil,
+            renderWidth: safetyFallback ? Int(renderSize.width) :
+                (isSceneLayout ? GamePiPSceneLayout.portraitWidth : Int(renderSize.width)),
+            renderHeight: safetyFallback ? Int(renderSize.height) :
+                (isSceneLayout ? GamePiPSceneLayout.portraitHeight : Int(renderSize.height)),
+            sceneBuffer: isSceneLayout && !safetyFallback ? sceneFrame : nil,
             sceneOrientation: sceneOrientation,
-            sceneEntries: isSceneLayout ? spatial : [])
+            sceneEntries: isSceneLayout && !safetyFallback ? spatial : [])
         frameRenderer.render(next) { [weak self] generation, buffer, elapsed in
             guard let self, generation == self.renderGeneration else { return }
             self.renderElapsedMs = Int(elapsed.rounded())
@@ -600,9 +610,20 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
 
     func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         isActive = true
+        if isSceneLayout && !sceneSourceExclusionVerified {
+            sceneFrame = nil
+            protectedFromSelfCapture = true
+            status = "安全防递归：已禁用画面回灌，继续显示文字译文"
+            #if DIRECT_CAPTURE
+            GameDiagnosticLog.shared.event("pip_safety", metrics: ["safety_mode": 1])
+            #endif
+        }
         isPreparing = false
         launchFailed = false
-        status = "同屏字幕运行中：现在可以切换回游戏"
+        status = protectedFromSelfCapture
+            ? "安全模式：防止 PiP 自捕获，继续显示实时译文"
+            : "同屏字幕运行中：现在可以切换回游戏"
+        renderFrame()
         #if DIRECT_CAPTURE
         GameDiagnosticLog.shared.event("pip_startup", metrics: [
             "pip_result": 1,
@@ -618,6 +639,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
                                     failedToStartPictureInPictureWithError error: Error) {
         startAfterFirstFrame = false
         isActive = false
+        protectedFromSelfCapture = false
         isPreparing = false
         launchFailed = true
         status = "画中画启动失败：\(error.localizedDescription)"
@@ -632,6 +654,7 @@ final class FloatingSubtitleController: NSObject, ObservableObject,
     func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         startAfterFirstFrame = false
         isActive = false
+        protectedFromSelfCapture = false
         isPreparing = false
         status = "悬浮窗已关闭，翻译请返回 App 查看"
         frameTimer?.invalidate()
